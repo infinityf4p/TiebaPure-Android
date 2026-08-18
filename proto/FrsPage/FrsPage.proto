@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package tieba.frsPage;
+
+import "AppPosInfo.proto";
+import "Anti.proto";
+import "CommonRequest.proto";
+import "Error.proto";
+import "ThreadInfo.proto";
+import "User.proto";
+
+message AdParam {
+  optional int32 load_count = 1;
+  optional int32 refresh_count = 2;
+}
+
+message FrsPageRequestData {
+  string kw = 1;
+  int32 rn = 2;
+  int32 rn_need = 3;
+  optional int32 is_good = 4;
+  optional int32 cid = 5;
+  optional int32 with_group = 8;
+  int32 scr_w = 11;
+  int32 scr_h = 12;
+  double scr_dip = 13;
+  int32 q_type = 14;
+  int32 pn = 15;
+  optional string st_type = 16;
+  tieba.CommonRequest common = 39;
+  optional int32 sort_type = 47;
+  int32 load_type = 49;
+  tieba.AppPosInfo app_pos = 50;
+  AdParam ad_param = 51;
+}
+
+message FrsPageRequest {
+  FrsPageRequestData data = 1;
+}
+
+message FrsPageResponseData {
+  tieba.Anti anti = 5;
+  repeated tieba.ThreadInfo thread_list = 7;
+  repeated tieba.User user_list = 17;
+}
+
+message FrsPageResponse {
+  tieba.Error error = 1;
+  FrsPageResponseData data = 2;
+}

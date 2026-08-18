@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package tieba;
+
+message Lbs {
+  string lat = 1;
+  string lng = 2;
+  string name = 3;
+  string sn = 4;
+  string distance = 5;
+}

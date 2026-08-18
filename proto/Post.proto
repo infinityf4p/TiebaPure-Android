@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package tieba;
+
+import "Agree.proto";
+import "Lbs.proto";
+import "PbContent.proto";
+import "SubPost.proto";
+import "User.proto";
+
+message Post {
+  uint64 id = 1;
+  uint32 floor = 3;
+  uint32 time = 4;
+  repeated PbContent content = 5;
+  Lbs lbs_info = 7;
+  uint32 sub_post_number = 13;
+  SubPost sub_post_list = 15;
+  int64 author_id = 19;
+  User author = 23;
+  Zan zan = 24;
+  PbPostZan post_zan = 30;
+  Agree agree = 37;
+  int32 is_fold = 43;
+  int64 tid = 46;
+  Advertisement advertisement = 55;
+}
+
+message PbPostZan {
+  int64 zan_num = 1;
+  int32 has_zan = 2;
+}
+
+message Zan {
+  int32 num = 1;
+  int32 is_liked = 3;
+}
+
+// Presence is enough to reject advertisement floors before domain mapping.
+message Advertisement {
+  int64 time = 1;
+  string advertisement_id = 5;
+}

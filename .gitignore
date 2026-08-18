@@ -1,0 +1,31 @@
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Gradle / Android
+.gradle/
+.kotlin/
+.idea/
+build/
+captures/
+local.properties
+**/.cxx/
+outputs/
+artifacts/
+
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.jks
+*.keystore
+
+# Secrets
+.env
+.env.*
+account.json
+*.pem
+*.p12
+*.p8
+*.key

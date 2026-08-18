@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package tieba;
+
+import "CommonRequest.proto";
+import "Error.proto";
+
+// Minimal project-maintained mutation wire contracts. Field numbers were
+// cross-checked against aiotieba v4.7.1 (AddPost) and TiebaDesktop
+// ab437f18a060d61fe255a33dfec9a5deaa626bd6 (AddThread). The schemas only
+// expose fields TiebaPure needs for text, images, reply targets and verification.
+message AddPostRequest {
+  message Data {
+    CommonRequest common = 1;
+    optional string anonymous = 6;
+    optional string can_no_forum = 7;
+    optional string is_feedback = 8;
+    optional string takephoto_num = 9;
+    optional string entrance_type = 10;
+    optional string vcode = 13;
+    optional string vcode_md5 = 14;
+    optional string vcode_type = 15;
+    optional string vcode_tag = 16;
+    optional string new_vcode = 18;
+    string content = 19;
+    optional string reply_uid = 20;
+    string fid = 26;
+    optional string v_fid = 28;
+    optional string v_fname = 29;
+    string kw = 30;
+    optional string is_barrage = 31;
+    optional string barrage_time = 32;
+    optional string from_fourm_id = 44;
+    string tid = 45;
+    optional string quote_id = 46;
+    optional string floor_num = 48;
+    optional string repostid = 49;
+    optional string sub_post_id = 50;
+    optional string is_ad = 51;
+    optional string is_addition = 52;
+    optional string is_giftpost = 53;
+    optional string post_from = 55;
+    string name_show = 58;
+    optional string is_pictxt = 60;
+    optional int32 show_custom_figure = 64;
+    optional int32 is_show_bless = 67;
+  }
+
+  Data data = 1;
+}
+
+message AddThreadRequest {
+  message Data {
+    CommonRequest common = 1;
+    optional string anonymous = 6;
+    optional string can_no_forum = 7;
+    optional string is_feedback = 8;
+    optional string takephoto_num = 9;
+    optional string entrance_type = 10;
+    optional string vcode = 13;
+    optional string vcode_md5 = 14;
+    optional string vcode_type = 15;
+    optional string vcode_tag = 16;
+    optional string new_vcode = 18;
+    string content = 19;
+    string fid = 26;
+    string kw = 27;
+    optional string is_hide = 29;
+    optional string is_repost_to_dynamic = 30;
+    optional string pro_zone = 36;
+    optional string call_from = 37;
+    string title = 38;
+    optional string is_ntitle = 41;
+    optional string is_link_thread = 55;
+    optional string is_forum_business_account = 63;
+    string name_show = 75;
+    optional string is_pictxt = 77;
+    optional string is_article = 79;
+    optional int32 show_custom_figure = 80;
+    optional int32 is_question = 83;
+    optional int32 is_xiuxiu_thread = 86;
+    optional int32 is_show_bless = 87;
+    optional string ext = 96;
+  }
+
+  Data data = 1;
+}
+
+message SubmissionVerificationInfo {
+  string need_vcode = 3;
+  string vcode_md5 = 4;
+  string vcode_type = 6;
+  string vcode_pic_url = 12;
+}
+
+message AddPostResponse {
+  message Data {
+    string tid = 2;
+    string pid = 3;
+    string msg = 5;
+    string pre_msg = 6;
+    string color_msg = 7;
+    SubmissionVerificationInfo info = 14;
+  }
+
+  Error error = 1;
+  Data data = 2;
+}
+
+message AddThreadResponse {
+  message Data {
+    string tid = 2;
+    string pid = 3;
+    string msg = 5;
+    string pre_msg = 6;
+    string color_msg = 7;
+    SubmissionVerificationInfo info = 14;
+  }
+
+  Error error = 1;
+  Data data = 2;
+}

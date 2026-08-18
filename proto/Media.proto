@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package tieba;
+
+message Media {
+  int32 type = 1;
+  string bigPic = 3;
+  string srcPic = 8;
+  uint32 width = 10;
+  uint32 height = 11;
+  string originPic = 15;
+  uint32 originSize = 16;
+  string dynamicPic = 18;
+  uint32 showOriginalBtn = 20;
+}

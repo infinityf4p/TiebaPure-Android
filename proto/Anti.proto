@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package tieba;
+
+message Anti {
+  string tbs = 1;
+}

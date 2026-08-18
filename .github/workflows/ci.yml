@@ -1,0 +1,110 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Temurin JDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          check-latest: false
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-provider: basic
+          validate-wrappers: true
+
+      - name: Set up Android SDK 36
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          cmdline-tools-version: 14742923
+          log-accepted-android-sdk-licenses: false
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Verify Android toolchain
+        run: |
+          java -version
+          test "$(java -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/ { print $2 }')" = 17
+          test -d "$ANDROID_SDK_ROOT/platforms/android-36"
+          test -d "$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          ./gradlew --version
+
+      - name: Unit tests, release lint, APKs, and AAB
+        run: |
+          ./gradlew --no-daemon --stacktrace \
+            test lintRelease assembleDebug assembleRelease bundleRelease \
+            :core:data:assembleDebugAndroidTest \
+            :feature:home:assembleDebugAndroidTest \
+            :feature:forum:assembleDebugAndroidTest \
+            :feature:search:assembleDebugAndroidTest
+
+      - name: Verify Android release outputs
+        run: |
+          DEBUG_APK=app/build/outputs/apk/debug/app-debug.apk
+          RELEASE_APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          RELEASE_AAB=app/build/outputs/bundle/release/app-release.aab
+          MAPPING=app/build/outputs/mapping/release/mapping.txt
+          R8_SEEDS=app/build/outputs/mapping/release/seeds.txt
+          CHECKSUMS=app/build/outputs/TiebaPure-android-SHA256SUMS.txt
+
+          test -s "$DEBUG_APK"
+          test -s "$RELEASE_APK"
+          test -s "$RELEASE_AAB"
+          test -s "$MAPPING"
+          test -s "$R8_SEEDS"
+
+          grep -Fq 'tieba.CommonRequestOuterClass$CommonRequest: int ClientType_' "$R8_SEEDS"
+          grep -Fq 'tieba.CommonRequestOuterClass$CommonRequest: java.lang.String ClientVersion_' "$R8_SEEDS"
+
+          for license in \
+            GPL-3.0-only.txt \
+            Apache-2.0.txt \
+            Protocol-Buffers-BSD-3-Clause.txt \
+            THIRD_PARTY_NOTICES.md; do
+            unzip -Z1 "$RELEASE_APK" | grep -Fxq "assets/licenses/$license"
+            unzip -Z1 "$RELEASE_AAB" | grep -Fxq "base/assets/licenses/$license"
+          done
+
+          unzip -p "$RELEASE_APK" assets/licenses/GPL-3.0-only.txt | grep -Fq 'GNU GENERAL PUBLIC LICENSE'
+          unzip -p "$RELEASE_APK" assets/licenses/Apache-2.0.txt | grep -Fq 'Apache License'
+          unzip -p "$RELEASE_APK" assets/licenses/Protocol-Buffers-BSD-3-Clause.txt | grep -Fq 'Copyright 2008 Google Inc.'
+          unzip -p "$RELEASE_APK" assets/licenses/THIRD_PARTY_NOTICES.md | grep -Fq 'Third-Party Notices'
+          unzip -p "$RELEASE_AAB" base/assets/licenses/GPL-3.0-only.txt | grep -Fq 'GNU GENERAL PUBLIC LICENSE'
+          unzip -p "$RELEASE_AAB" base/assets/licenses/Apache-2.0.txt | grep -Fq 'Apache License'
+          unzip -p "$RELEASE_AAB" base/assets/licenses/Protocol-Buffers-BSD-3-Clause.txt | grep -Fq 'Copyright 2008 Google Inc.'
+          unzip -p "$RELEASE_AAB" base/assets/licenses/THIRD_PARTY_NOTICES.md | grep -Fq 'Third-Party Notices'
+
+          sha256sum "$DEBUG_APK" "$RELEASE_APK" "$RELEASE_AAB" "$MAPPING" "$R8_SEEDS" > "$CHECKSUMS"
+
+      - name: Upload Android build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: TiebaPure-android-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/outputs/mapping/release/seeds.txt
+            app/build/outputs/TiebaPure-android-SHA256SUMS.txt

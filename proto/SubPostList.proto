@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package tieba;
+
+import "Agree.proto";
+import "Lbs.proto";
+import "PbContent.proto";
+import "User.proto";
+
+message SubPostList {
+  uint64 id = 1;
+  repeated PbContent content = 2;
+  uint32 time = 3;
+  int64 author_id = 4;
+  string title = 5;
+  uint32 floor = 6;
+  User author = 7;
+  Agree agree = 9;
+  Lbs location = 10;
+}

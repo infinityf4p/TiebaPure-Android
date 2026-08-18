@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package tieba;
+
+message Error {
+  int32 error_code = 1;
+  string error_msg = 2;
+  string user_msg = 3;
+}

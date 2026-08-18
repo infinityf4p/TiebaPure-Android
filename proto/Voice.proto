@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package tieba;
+
+message Voice {
+  int32 during_time = 2;
+  string voice_md5 = 3;
+}

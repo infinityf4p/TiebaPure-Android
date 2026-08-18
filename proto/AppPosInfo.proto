@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package tieba;
+
+message AppPosInfo {
+  optional string ap_mac = 1;
+  optional bool ap_connected = 2;
+  optional string coordinate_type = 3;
+  optional int64 addr_timestamp = 6;
+  optional string asp_shown_info = 7;
+}

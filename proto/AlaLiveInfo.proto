@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+package tieba;
+
+// Thread filtering only needs message presence; payload fields stay unknown.
+message AlaLiveInfo {}

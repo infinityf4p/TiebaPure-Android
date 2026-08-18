@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package tieba;
+
+message User {
+  int64 id = 2;
+  string name = 3;
+  string nameShow = 4;
+  string portrait = 5;
+  int32 level_id = 23;
+  string portraith = 27;
+  string ip = 28;
+  int32 fans_num = 30;
+  int32 concern_num = 31;
+  int32 sex = 32;
+  int32 my_like_num = 33;
+  string intro = 34;
+  int32 has_concerned = 35;
+  string tb_age = 38;
+  int32 gender = 42;
+  PrivSets privSets = 45;
+  repeated LikeForumInfo likeForum = 47;
+  string bg_pic = 58;
+  int32 thread_num = 87;
+  int32 agree_num = 88;
+  string level_influence = 100;
+  uint32 total_agree_num = 118;
+  string tieba_uid = 120;
+  string level_name = 125;
+  string ip_address = 127;
+  string display_intro = 138;
+}
+
+message PrivSets {
+  int32 like = 2;
+}
+
+message LikeForumInfo {
+  string forum_name = 1;
+  uint64 forum_id = 2;
+}

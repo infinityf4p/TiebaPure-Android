@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package tieba;
+
+import "SubPostList.proto";
+
+message SubPost {
+  uint64 pid = 1;
+  repeated SubPostList sub_post_list = 2;
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package tieba;
+
+message Agree {
+  int64 agreeNum = 1;
+  int32 hasAgree = 2;
+  int64 disagreeNum = 4;
+}
