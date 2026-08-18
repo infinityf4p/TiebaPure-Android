@@ -51,7 +51,7 @@ data class SettingsHostState(
 
 data class SettingsAboutInfo(
     val versionName: String,
-    val projectUrl: String = "https://github.com/infinityf4p/TiebaPure-iOS",
+    val projectUrl: String = "https://github.com/infinityf4p/TiebaPure-Android",
     val authorUrl: String = "https://github.com/infinityf4p",
     val licenseUrl: String = "https://www.gnu.org/licenses/gpl-3.0.html",
     val protobufLicenseUrl: String = "https://github.com/protocolbuffers/protobuf/blob/main/LICENSE",
