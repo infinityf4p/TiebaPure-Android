@@ -602,7 +602,6 @@ private fun AppNavigationHost(
                     ForumHubRoute(
                         viewModel = hub,
                         onOpenForum = { forum ->
-                            hub.opened(forum)
                             destinationNavController.navigate(forumRoute(forum))
                         },
                     )
@@ -683,6 +682,7 @@ private fun AppNavigationHost(
                             forum,
                             container.featureRepositories.forumThreads,
                             container.featureRepositories.forumInteraction,
+                            container.featureRepositories.forumHub,
                         )
                     },
                 )

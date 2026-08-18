@@ -35,6 +35,7 @@ import dev.infinityf4p.tiebapure.feature.thread.ThreadMainPostFallback
 import dev.infinityf4p.tiebapure.feature.thread.ThreadReadingPosition
 import dev.infinityf4p.tiebapure.feature.thread.ThreadReplyTarget
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -84,28 +85,21 @@ class AppFeatureRepositories(
                 .filter { TiebaContentFilterPolicy.shouldKeep(it, blocklist) }
         }
 
-        override suspend fun recentForums(): List<Forum> {
-            val blocklist = blockedEntries()
-            return database.recentForumDao()
-                .observeAll()
-                .first()
+        override fun recentForums() = combine(
+            database.recentForumDao().observeAll(),
+            database.blocklistDao().observeAll(),
+        ) { entities, blocked ->
+            val blocklist = blocked.toBlocklistSnapshot()
+            entities
                 .map(RecentForumEntity::toForum)
                 .filter { TiebaContentFilterPolicy.shouldKeep(it, blocklist) }
         }
 
         override suspend fun recordRecent(forum: Forum) {
-            val normalized = forum.name.trim().removeSuffix("吧").trim().lowercase()
-            if (normalized.isEmpty()) return
-            database.recentForumDao().upsert(
-                RecentForumEntity(
-                    normalizedName = normalized,
-                    forumId = forum.id,
-                    name = forum.name.trim().removeSuffix("吧").trim(),
-                    displayName = forum.displayName.ifBlank { "${forum.name}吧" },
-                    avatarUrl = forum.avatarUrl,
-                    visitedAtMilliseconds = System.currentTimeMillis(),
-                ),
-            )
+            val dao = database.recentForumDao()
+            val initial = recentForumEntity(forum, visitedAtMilliseconds = System.currentTimeMillis()) ?: return
+            val existing = dao.load(initial.normalizedName)
+            dao.upsert(recentForumEntity(forum, existing, initial.visitedAtMilliseconds) ?: return)
         }
 
         override suspend fun removeRecent(forum: Forum) {
@@ -421,6 +415,27 @@ private fun RecentForumEntity.toForum(): Forum = Forum(
     displayName = displayName,
     avatarUrl = avatarUrl,
 )
+
+internal fun recentForumEntity(
+    forum: Forum,
+    existing: RecentForumEntity? = null,
+    visitedAtMilliseconds: Long,
+): RecentForumEntity? {
+    val name = forum.name.trim().removeSuffix("吧").trim()
+        .ifEmpty { forum.displayName.trim().removeSuffix("吧").trim() }
+        .takeIf(String::isNotEmpty)
+        ?: return null
+    return RecentForumEntity(
+        normalizedName = name.lowercase(),
+        forumId = forum.id.takeIf { it > 0 } ?: existing?.forumId ?: 0,
+        name = name,
+        displayName = forum.displayName.takeIf(String::isNotBlank)
+            ?: existing?.displayName?.takeIf(String::isNotBlank)
+            ?: "${name}吧",
+        avatarUrl = forum.avatarUrl?.takeIf(String::isNotBlank) ?: existing?.avatarUrl,
+        visitedAtMilliseconds = visitedAtMilliseconds,
+    )
+}
 
 private fun filterThreads(
     threads: List<ThreadSummary>,

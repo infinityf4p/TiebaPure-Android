@@ -1,5 +1,6 @@
 package dev.infinityf4p.tiebapure
 
+import dev.infinityf4p.tiebapure.core.data.RecentForumEntity
 import dev.infinityf4p.tiebapure.core.model.Account
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionKind
 import dev.infinityf4p.tiebapure.core.model.Forum
@@ -69,6 +70,36 @@ class AppNavigationPolicyTest {
             buildForumRoute(Forum(7, "", "测试吧")) { "encoded($it)" },
         )
         assertEquals(null, buildForumRoute(Forum(7, "", "")) { it })
+    }
+
+    @Test
+    fun recentForumPlaceholderPreservesResolvedMetadata() {
+        val existing = RecentForumEntity(
+            normalizedName = "测试",
+            forumId = 42,
+            name = "测试",
+            displayName = "测试吧",
+            avatarUrl = "https://example.com/forum.jpg",
+            visitedAtMilliseconds = 1,
+        )
+
+        val updated = recentForumEntity(
+            forum = Forum(0, "测试", ""),
+            existing = existing,
+            visitedAtMilliseconds = 2,
+        )
+
+        assertEquals(42L, updated?.forumId)
+        assertEquals("测试吧", updated?.displayName)
+        assertEquals("https://example.com/forum.jpg", updated?.avatarUrl)
+        assertEquals(2L, updated?.visitedAtMilliseconds)
+        assertEquals(
+            "显示名",
+            recentForumEntity(
+                forum = Forum(0, "", "显示名吧"),
+                visitedAtMilliseconds = 3,
+            )?.name,
+        )
     }
 
     @Test

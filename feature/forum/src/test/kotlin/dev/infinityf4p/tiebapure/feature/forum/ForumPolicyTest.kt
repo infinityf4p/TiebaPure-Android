@@ -12,6 +12,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -103,6 +105,18 @@ class ForumPolicyTest {
         )
 
         assertEquals(42, state.forum.id)
+    }
+
+    @Test
+    fun hubObservesRecentForumsRecordedOutsideTheHub() = runTest(dispatcher) {
+        val repository = ObservableForumHubRepository()
+        val viewModel = ForumHubViewModel(repository)
+        advanceUntilIdle()
+
+        repository.recordRecent(Forum(42, "测试", "测试吧"))
+        runCurrent()
+
+        assertEquals(listOf("测试"), viewModel.uiState.value.recentForums.map(Forum::name))
     }
 
     @Test
@@ -219,6 +233,30 @@ class ForumPolicyTest {
     }
 
     @Test
+    fun openingForumRecordsPlaceholderAndResolvedMetadata() = runTest(dispatcher) {
+        val repository = ControllableForumThreadsRepository()
+        val visits = mutableListOf<Forum>()
+        val viewModel = ForumThreadsViewModel(
+            forum = Forum(0, "测试", "测试吧"),
+            repository = repository,
+            visitRecorder = ForumVisitRecorder { visits += it },
+        )
+        runCurrent()
+
+        repository.calls.single().result.complete(
+            forumPage(
+                forum = Forum(42, "测试", "测试吧", avatarUrl = "https://example.com/forum.jpg"),
+                threadId = 1,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(0L, 42L), visits.map(Forum::id))
+        assertEquals("https://example.com/forum.jpg", visits.last().avatarUrl)
+        assertEquals(42, viewModel.uiState.value.forum.id)
+    }
+
+    @Test
     fun retryRepeatsRefreshWhenCachedPageHasNoMoreItems() = runTest(dispatcher) {
         val repository = ControllableForumThreadsRepository()
         val forum = Forum(42, "测试", "测试吧")
@@ -318,6 +356,25 @@ class ForumPolicyTest {
         assertFalse(canOpenForumThreadAuthor(UserSummary(0, "", "未知用户", "")))
         assertFalse(canOpenForumThreadAuthor(UserSummary(-1, "", "未知用户", "")))
         assertTrue(canOpenForumThreadAuthor(UserSummary(7, "valid", "有效用户", "")))
+    }
+}
+
+private class ObservableForumHubRepository : ForumHubRepository {
+    private val recent = MutableStateFlow<List<Forum>>(emptyList())
+
+    override suspend fun followedForums(): List<Forum> = emptyList()
+    override fun recentForums(): Flow<List<Forum>> = recent
+
+    override suspend fun recordRecent(forum: Forum) {
+        recent.value = listOf(forum) + recent.value.filterNot { it.name == forum.name }
+    }
+
+    override suspend fun removeRecent(forum: Forum) {
+        recent.value = recent.value.filterNot { it.name == forum.name }
+    }
+
+    override suspend fun clearRecent() {
+        recent.value = emptyList()
     }
 }
 

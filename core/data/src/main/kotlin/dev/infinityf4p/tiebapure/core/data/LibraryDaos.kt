@@ -113,6 +113,9 @@ abstract class RecentForumDao {
     @Query("SELECT * FROM recent_forums ORDER BY visited_at_ms DESC")
     abstract fun observeAll(): Flow<List<RecentForumEntity>>
 
+    @Query("SELECT * FROM recent_forums WHERE normalized_name = :normalizedName LIMIT 1")
+    abstract suspend fun load(normalizedName: String): RecentForumEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun insert(entity: RecentForumEntity)
 

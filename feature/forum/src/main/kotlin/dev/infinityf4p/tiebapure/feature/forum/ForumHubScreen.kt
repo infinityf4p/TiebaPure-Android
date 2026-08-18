@@ -57,10 +57,7 @@ fun ForumHubRoute(
     ForumHubScreen(
         uiState = uiState,
         onRefresh = { viewModel.refresh() },
-        onOpenForum = { forum ->
-            viewModel.opened(forum)
-            onOpenForum(forum)
-        },
+        onOpenForum = onOpenForum,
         onRemoveRecent = viewModel::removeRecent,
         onClearRecent = viewModel::clearRecent,
         modifier = modifier,
