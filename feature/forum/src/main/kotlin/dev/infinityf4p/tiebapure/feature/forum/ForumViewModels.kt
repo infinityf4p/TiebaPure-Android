@@ -11,16 +11,22 @@ import dev.infinityf4p.tiebapure.core.model.UserSummary
 import dev.infinityf4p.tiebapure.core.model.mutationOutcomeUnknownMessageOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-interface ForumHubRepository {
-    suspend fun followedForums(): List<Forum>
-    suspend fun recentForums(): List<Forum>
+fun interface ForumVisitRecorder {
     suspend fun recordRecent(forum: Forum)
+}
+
+interface ForumHubRepository : ForumVisitRecorder {
+    suspend fun followedForums(): List<Forum>
+    fun recentForums(): Flow<List<Forum>>
     suspend fun removeRecent(forum: Forum)
     suspend fun clearRecent()
 }
@@ -40,6 +46,7 @@ class ForumHubViewModel(
     val uiState: StateFlow<ForumHubUiState> = _uiState.asStateFlow()
 
     init {
+        observeRecentForums()
         refresh(initial = true)
     }
 
@@ -53,12 +60,16 @@ class ForumHubViewModel(
                     errorMessage = null,
                 )
             }
-            runCatching { repository.followedForums() to repository.recentForums() }
-                .onSuccess { (followed, recent) ->
-                    _uiState.value = ForumHubUiState(
-                        followedForums = followed.distinctBy(Forum::name),
-                        recentForums = recent.distinctBy(Forum::name),
-                    )
+            runCatching { repository.followedForums() }
+                .onSuccess { followed ->
+                    _uiState.update {
+                        it.copy(
+                            followedForums = followed.distinctBy(Forum::name),
+                            isLoading = false,
+                            isRefreshing = false,
+                            errorMessage = null,
+                        )
+                    }
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -73,10 +84,6 @@ class ForumHubViewModel(
         }
     }
 
-    fun opened(forum: Forum) {
-        viewModelScope.launch { repository.recordRecent(forum) }
-    }
-
     fun removeRecent(forum: Forum) {
         viewModelScope.launch {
             repository.removeRecent(forum)
@@ -88,6 +95,27 @@ class ForumHubViewModel(
         viewModelScope.launch {
             repository.clearRecent()
             _uiState.update { it.copy(recentForums = emptyList()) }
+        }
+    }
+
+    private fun observeRecentForums() {
+        viewModelScope.launch {
+            repository.recentForums()
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            errorMessage = error.message ?: "加载最近浏览失败，请稍后重试。",
+                        )
+                    }
+                }
+                .collect { recent ->
+                    _uiState.update {
+                        it.copy(recentForums = recent.distinctBy(Forum::name))
+                    }
+                }
         }
     }
 }
@@ -179,6 +207,7 @@ class ForumThreadsViewModel(
     forum: Forum,
     private val repository: ForumThreadsRepository,
     private val interactionPort: ForumInteractionPort = UnavailableForumInteractionPort,
+    private val visitRecorder: ForumVisitRecorder? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         ForumThreadsUiState(
@@ -193,6 +222,7 @@ class ForumThreadsViewModel(
     private var failedLoadOperation: ForumThreadsLoadOperation? = null
 
     init {
+        recordVisit(forum)
         refresh(initial = true)
         refreshForumInteraction()
     }
@@ -347,6 +377,7 @@ class ForumThreadsViewModel(
                 _uiState.update { current ->
                     applyForumPage(current, result, replace)
                 }
+                _uiState.value.forum.takeIf { it != snapshot.forum }?.let(::recordVisit)
                 val interaction = _uiState.value
                 if (interaction.forum.id > 0 &&
                     interaction.followAvailability == ForumFollowAvailability.Available &&
@@ -381,6 +412,14 @@ class ForumThreadsViewModel(
         requestGeneration += 1
         requestJob?.cancel()
         requestJob = null
+    }
+
+    private fun recordVisit(forum: Forum) {
+        val recorder = visitRecorder ?: return
+        viewModelScope.launch {
+            runCatching { recorder.recordRecent(forum) }
+                .onFailure { error -> if (error is CancellationException) throw error }
+        }
     }
 
     private fun currentRequestKey(page: Int): ForumThreadsRequestKey =
