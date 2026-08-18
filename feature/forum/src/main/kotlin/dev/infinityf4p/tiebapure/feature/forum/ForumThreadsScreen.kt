@@ -106,6 +106,7 @@ fun ForumThreadsRoute(
             viewModel.refreshForumInteraction()
         },
         onLoadMore = viewModel::loadMore,
+        onRetry = viewModel::retry,
         onToggleForumFollow = viewModel::toggleForumFollow,
         onDismissForumActionError = viewModel::dismissForumActionError,
         mediaLoadingPolicy = mediaLoadingPolicy,
@@ -124,6 +125,7 @@ fun ForumThreadsScreen(
     onLoadMore: () -> Unit,
     onToggleForumFollow: () -> Unit,
     onDismissForumActionError: () -> Unit,
+    onRetry: () -> Unit = onRefresh,
     mediaLoadingPolicy: ReaderMediaLoadingPolicy = ReaderMediaLoadingPolicy.Automatic,
     modifier: Modifier = Modifier,
 ) {
@@ -185,7 +187,7 @@ fun ForumThreadsScreen(
             when {
                 uiState.isInitialLoading && uiState.threads.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                 uiState.errorMessage != null && uiState.threads.isEmpty() && !uiState.hasMore -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    TextButton(onClick = onRefresh) { Text("${uiState.errorMessage} 点击重试") }
+                    TextButton(onClick = onRetry) { Text("${uiState.errorMessage} 点击重试") }
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item(key = "category") {
@@ -240,6 +242,7 @@ fun ForumThreadsScreen(
                             EmptyPageContinuation(
                                 isLoading = uiState.isRefreshing || uiState.isLoadingMore,
                                 error = uiState.errorMessage,
+                                onRetry = onRetry,
                                 onLoadMore = onLoadMore,
                             )
                         }
@@ -249,7 +252,7 @@ fun ForumThreadsScreen(
                             Box(Modifier.fillMaxWidth().height(64.dp), Alignment.Center) {
                                 when {
                                     uiState.isLoadingMore -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                                    uiState.errorMessage != null -> TextButton(onClick = onLoadMore) { Text("加载失败，点击重试") }
+                                    uiState.errorMessage != null -> TextButton(onClick = onRetry) { Text("加载失败，点击重试") }
                                     uiState.hasMore -> TextButton(onClick = onLoadMore) { Text("加载更多帖子") }
                                     else -> Text("没有更多了", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -266,6 +269,7 @@ fun ForumThreadsScreen(
 private fun EmptyPageContinuation(
     isLoading: Boolean,
     error: String?,
+    onRetry: () -> Unit,
     onLoadMore: () -> Unit,
 ) {
     val modifier = Modifier
@@ -277,7 +281,7 @@ private fun EmptyPageContinuation(
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         }
     } else {
-        TextButton(onClick = onLoadMore, modifier = modifier) {
+        TextButton(onClick = if (error == null) onLoadMore else onRetry, modifier = modifier) {
             Text(if (error == null) "继续加载" else "加载失败，点击重试")
         }
     }

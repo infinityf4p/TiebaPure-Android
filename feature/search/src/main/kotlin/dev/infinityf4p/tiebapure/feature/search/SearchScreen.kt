@@ -96,6 +96,7 @@ fun SearchRoute(
         onSelectSort = viewModel::selectSort,
         onRefresh = { viewModel.refresh() },
         onLoadMore = viewModel::loadMore,
+        onRetry = viewModel::retry,
         mediaLoadingPolicy = mediaLoadingPolicy,
         modifier = modifier,
     )
@@ -116,6 +117,7 @@ fun SearchScreen(
     onSelectSort: (SearchSort) -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit = onRefresh,
     mediaLoadingPolicy: ReaderMediaLoadingPolicy = ReaderMediaLoadingPolicy.Automatic,
     modifier: Modifier = Modifier,
 ) {
@@ -152,6 +154,7 @@ fun SearchScreen(
                 onSelectSort,
                 onRefresh,
                 onLoadMore,
+                onRetry,
                 mediaLoadingPolicy,
             )
         }
@@ -202,6 +205,7 @@ private fun SearchResultsContent(
     onSelectSort: (SearchSort) -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
     mediaLoadingPolicy: ReaderMediaLoadingPolicy,
 ) {
     PullToRefreshBox(
@@ -223,7 +227,7 @@ private fun SearchResultsContent(
                         if (state.showsEmptyPageContinuation) {
                             Text(state.errorMessage, color = MaterialTheme.colorScheme.error)
                         } else {
-                            TextButton(onClick = onRefresh) { Text("${state.errorMessage} 点击重试") }
+                            TextButton(onClick = onRetry) { Text("${state.errorMessage} 点击重试") }
                         }
                     }
                 }
@@ -266,6 +270,7 @@ private fun SearchResultsContent(
                     EmptyPageContinuation(
                         isLoading = state.isRefreshing || state.isLoadingMore,
                         error = state.errorMessage,
+                        onRetry = onRetry,
                         onLoadMore = onLoadMore,
                     )
                 }
@@ -275,7 +280,7 @@ private fun SearchResultsContent(
                     Box(Modifier.fillMaxWidth().height(64.dp), Alignment.Center) {
                         when {
                             state.isLoadingMore -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                            state.errorMessage != null -> TextButton(onClick = onLoadMore) { Text("加载失败，点击重试") }
+                            state.errorMessage != null -> TextButton(onClick = onRetry) { Text("加载失败，点击重试") }
                             state.hasMore -> TextButton(onClick = onLoadMore) { Text("加载更多结果") }
                             !state.hasMore -> Text("没有更多了", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -290,6 +295,7 @@ private fun SearchResultsContent(
 private fun EmptyPageContinuation(
     isLoading: Boolean,
     error: String?,
+    onRetry: () -> Unit,
     onLoadMore: () -> Unit,
 ) {
     val modifier = Modifier
@@ -301,7 +307,7 @@ private fun EmptyPageContinuation(
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         }
     } else {
-        TextButton(onClick = onLoadMore, modifier = modifier) {
+        TextButton(onClick = if (error == null) onLoadMore else onRetry, modifier = modifier) {
             Text(if (error == null) "继续加载" else "加载失败，点击重试")
         }
     }

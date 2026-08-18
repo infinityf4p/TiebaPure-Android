@@ -71,6 +71,37 @@ class SearchViewModelTest {
         assertFalse(viewModel.uiState.value.isBusy)
     }
 
+    @Test
+    fun retryRepeatsRefreshWhenCachedPageHasNoMoreItems() = withViewModel { viewModel, repository ->
+        viewModel.updateInput("测试")
+        viewModel.submit()
+        repository.calls.single().result.complete(page(threadId = 1, hasMore = false))
+
+        viewModel.refresh()
+        repository.calls.last().result.completeExceptionally(IllegalStateException("刷新失败"))
+
+        assertEquals(listOf(1, 1), repository.calls.map(ControllableSearchRepository.Call::page))
+        assertEquals(listOf(1L), viewModel.uiState.value.items.threadIds())
+        viewModel.retry()
+
+        assertEquals(listOf(1, 1, 1), repository.calls.map(ControllableSearchRepository.Call::page))
+        repository.calls.last().result.complete(page(threadId = 2, hasMore = false))
+    }
+
+    @Test
+    fun retryRepeatsFailedPaginationPage() = withViewModel { viewModel, repository ->
+        viewModel.updateInput("测试")
+        viewModel.submit()
+        repository.calls.single().result.complete(page(threadId = 1, hasMore = true))
+
+        viewModel.loadMore()
+        repository.calls.last().result.completeExceptionally(IllegalStateException("分页失败"))
+        viewModel.retry()
+
+        assertEquals(listOf(1, 2, 2), repository.calls.map(ControllableSearchRepository.Call::page))
+        repository.calls.last().result.complete(page(threadId = 2, currentPage = 2, hasMore = false))
+    }
+
     private fun withViewModel(block: (SearchViewModel, ControllableSearchRepository) -> Unit) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         try {
@@ -121,7 +152,11 @@ private class ControllableSearchRepository : SearchRepository {
     override suspend fun clearHistory() = Unit
 }
 
-private fun page(threadId: Long): SearchPage = SearchPage(
+private fun page(
+    threadId: Long,
+    currentPage: Int = 1,
+    hasMore: Boolean = false,
+): SearchPage = SearchPage(
     items = listOf(
         SearchItem.ThreadResult(
             ThreadSummary(
@@ -135,8 +170,8 @@ private fun page(threadId: Long): SearchPage = SearchPage(
             ),
         ),
     ),
-    currentPage = 1,
-    hasMore = false,
+    currentPage = currentPage,
+    hasMore = hasMore,
 )
 
 private fun List<SearchItem>.threadIds(): List<Long> =

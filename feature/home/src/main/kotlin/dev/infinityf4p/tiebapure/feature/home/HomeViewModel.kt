@@ -24,6 +24,11 @@ fun interface HomeRepository {
     suspend fun loadFeed(page: Int): HomeFeedPage
 }
 
+private enum class HomeLoadOperation {
+    Refresh,
+    LoadMore,
+}
+
 data class HomeUiState(
     val threads: List<ThreadSummary> = emptyList(),
     val isInitialLoading: Boolean = false,
@@ -49,6 +54,7 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var activeRequest: Job? = null
     private var requestGeneration = 0L
+    private var failedLoadOperation: HomeLoadOperation? = null
 
     init {
         refresh(isInitial = true)
@@ -57,6 +63,7 @@ class HomeViewModel(
     fun refresh(isInitial: Boolean = false) {
         val snapshot = _uiState.value
         if (snapshot.isInitialLoading || snapshot.isRefreshing) return
+        failedLoadOperation = null
         requestGeneration += 1
         val generation = requestGeneration
         activeRequest?.cancel()
@@ -81,6 +88,7 @@ class HomeViewModel(
             result
                 .onSuccess { page ->
                     if (generation != requestGeneration) return@onSuccess
+                    failedLoadOperation = null
                     _uiState.update { current ->
                         current.copy(
                             threads = refreshThreads(current.threads, page.threads),
@@ -103,6 +111,7 @@ class HomeViewModel(
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     if (generation != requestGeneration) return@onFailure
+                    failedLoadOperation = HomeLoadOperation.Refresh
                     _uiState.update {
                         it.copy(
                             isInitialLoading = false,
@@ -119,6 +128,7 @@ class HomeViewModel(
     fun loadMore() {
         val snapshot = _uiState.value
         if (snapshot.isBusy || !snapshot.hasMore) return
+        failedLoadOperation = null
         requestGeneration += 1
         val generation = requestGeneration
         activeRequest = viewModelScope.launch {
@@ -127,6 +137,7 @@ class HomeViewModel(
             runCatching { repository.loadFeed(requestedPage) }
                 .onSuccess { page ->
                     if (generation != requestGeneration) return@onSuccess
+                    failedLoadOperation = null
                     _uiState.update { current ->
                         current.copy(
                             threads = mergeThreads(current.threads, page.threads),
@@ -139,6 +150,7 @@ class HomeViewModel(
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     if (generation != requestGeneration) return@onFailure
+                    failedLoadOperation = HomeLoadOperation.LoadMore
                     _uiState.update {
                         it.copy(isLoadingMore = false, errorMessage = error.readableMessage())
                     }
@@ -147,9 +159,17 @@ class HomeViewModel(
         }
     }
 
+    fun retry() {
+        when (failedLoadOperation) {
+            HomeLoadOperation.LoadMore -> loadMore()
+            HomeLoadOperation.Refresh, null -> refresh()
+        }
+    }
+
     fun beginLikeMutation(threadId: Long): ThreadSummary? {
         val thread = _uiState.value.threads.firstOrNull { it.id == threadId } ?: return null
         if (!_uiState.value.canBeginLikeMutation(threadId)) return null
+        failedLoadOperation = null
         _uiState.update {
             it.copy(updatingLikeThreadIds = it.updatingLikeThreadIds + threadId, errorMessage = null)
         }
@@ -171,6 +191,7 @@ class HomeViewModel(
     }
 
     fun markLikeOutcomeUnknown(threadId: Long, message: String) {
+        failedLoadOperation = null
         _uiState.update { it.markingLikeOutcomeUnknown(threadId, message) }
     }
 

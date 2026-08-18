@@ -70,6 +70,51 @@ class SearchScreenTest {
     }
 
     @Test
+    fun cachedErrorUsesRetryInsteadOfLoadMore() {
+        var retryCalls = 0
+        var loadMoreCalls = 0
+        val thread = ThreadSummary(
+            id = 11,
+            title = "缓存搜索结果",
+            author = UserSummary(1, "u", "作者", ""),
+            replyCount = 0,
+            viewCount = 0,
+            blocks = emptyList(),
+        )
+        composeRule.setContent {
+            TiebaPureTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        input = "测试",
+                        submittedKeyword = "测试",
+                        items = listOf(SearchItem.ThreadResult(thread)),
+                        hasMore = false,
+                        errorMessage = "刷新失败",
+                    ),
+                    callbacks = SearchCallbacks(),
+                    onInputChanged = {},
+                    onSubmit = {},
+                    onClearQuery = {},
+                    onSelectHistory = {},
+                    onRemoveHistory = {},
+                    onClearHistory = {},
+                    onSelectFilter = {},
+                    onSelectSort = {},
+                    onRefresh = {},
+                    onLoadMore = { loadMoreCalls += 1 },
+                    onRetry = { retryCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("加载失败，点击重试").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, retryCalls)
+            assertEquals(0, loadMoreCalls)
+        }
+    }
+
+    @Test
     fun searchResultShowsMediaPreview() {
         val thread = ThreadSummary(
             id = 12,

@@ -76,6 +76,33 @@ class HomeScreenTest {
     }
 
     @Test
+    fun cachedErrorUsesRetryInsteadOfLoadMore() {
+        var retryCalls = 0
+        var loadMoreCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                HomeScreen(
+                    uiState = HomeUiState(
+                        threads = listOf(mediaThread(id = 20, title = "缓存主题")),
+                        hasMore = false,
+                        errorMessage = "刷新失败",
+                    ),
+                    callbacks = HomeCallbacks(),
+                    onRefresh = {},
+                    onLoadMore = { loadMoreCalls += 1 },
+                    onRetry = { retryCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("加载失败，点击重试").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, retryCalls)
+            assertEquals(0, loadMoreCalls)
+        }
+    }
+
+    @Test
     fun feedShowsMediaPreviewWithoutHidingText() {
         val thread = mediaThread(id = 21, title = "带图片的主题")
         composeRule.setContent {

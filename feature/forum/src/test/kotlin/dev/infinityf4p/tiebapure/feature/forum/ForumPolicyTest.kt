@@ -219,6 +219,53 @@ class ForumPolicyTest {
     }
 
     @Test
+    fun retryRepeatsRefreshWhenCachedPageHasNoMoreItems() = runTest(dispatcher) {
+        val repository = ControllableForumThreadsRepository()
+        val forum = Forum(42, "测试", "测试吧")
+        val viewModel = ForumThreadsViewModel(forum, repository)
+        runCurrent()
+        repository.calls.single().result.complete(forumPage(forum, threadId = 1, hasMore = false))
+        advanceUntilIdle()
+
+        viewModel.refresh()
+        runCurrent()
+        repository.calls.last().result.completeExceptionally(IllegalStateException("刷新失败"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(1, 1), repository.calls.map(ControllableForumThreadsRepository.Call::page))
+        assertEquals(listOf(1L), viewModel.uiState.value.threads.map(ThreadSummary::id))
+        viewModel.retry()
+        runCurrent()
+
+        assertEquals(listOf(1, 1, 1), repository.calls.map(ControllableForumThreadsRepository.Call::page))
+        repository.calls.last().result.complete(forumPage(forum, threadId = 2, hasMore = false))
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun retryRepeatsFailedPaginationPage() = runTest(dispatcher) {
+        val repository = ControllableForumThreadsRepository()
+        val forum = Forum(42, "测试", "测试吧")
+        val viewModel = ForumThreadsViewModel(forum, repository)
+        runCurrent()
+        repository.calls.single().result.complete(forumPage(forum, threadId = 1, hasMore = true))
+        advanceUntilIdle()
+
+        viewModel.loadMore()
+        runCurrent()
+        repository.calls.last().result.completeExceptionally(IllegalStateException("分页失败"))
+        advanceUntilIdle()
+        viewModel.retry()
+        runCurrent()
+
+        assertEquals(listOf(1, 2, 2), repository.calls.map(ControllableForumThreadsRepository.Call::page))
+        repository.calls.last().result.complete(
+            forumPage(forum, threadId = 2, currentPage = 2, hasMore = false),
+        )
+        advanceUntilIdle()
+    }
+
+    @Test
     fun unresolvedForumIdCannotCreateThread() {
         assertFalse(
             canCreateThread(
@@ -285,6 +332,7 @@ private class EmptyForumThreadsRepository : ForumThreadsRepository {
 private class ControllableForumThreadsRepository : ForumThreadsRepository {
     data class Call(
         val category: ForumThreadCategory,
+        val page: Int,
         val result: CompletableDeferred<ForumPage> = CompletableDeferred(),
         val cancelled: CompletableDeferred<Unit> = CompletableDeferred(),
     )
@@ -296,7 +344,7 @@ private class ControllableForumThreadsRepository : ForumThreadsRepository {
         page: Int,
         category: ForumThreadCategory,
     ): ForumPage {
-        val call = Call(category)
+        val call = Call(category, page)
         calls += call
         return try {
             call.result.await()
@@ -307,7 +355,12 @@ private class ControllableForumThreadsRepository : ForumThreadsRepository {
     }
 }
 
-private fun forumPage(forum: Forum, threadId: Long) = ForumPage(
+private fun forumPage(
+    forum: Forum,
+    threadId: Long,
+    currentPage: Int = 1,
+    hasMore: Boolean = false,
+) = ForumPage(
     forum = forum,
     threads = listOf(
         ThreadSummary(
@@ -319,8 +372,8 @@ private fun forumPage(forum: Forum, threadId: Long) = ForumPage(
             blocks = emptyList(),
         ),
     ),
-    currentPage = 1,
-    hasMore = false,
+    currentPage = currentPage,
+    hasMore = hasMore,
 )
 
 private class FakeForumInteractionPort(
