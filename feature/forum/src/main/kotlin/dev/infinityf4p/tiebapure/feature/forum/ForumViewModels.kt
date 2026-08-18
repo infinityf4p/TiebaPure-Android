@@ -170,6 +170,11 @@ private data class ForumThreadsRequestKey(
     val page: Int,
 )
 
+private enum class ForumThreadsLoadOperation {
+    Refresh,
+    LoadMore,
+}
+
 class ForumThreadsViewModel(
     forum: Forum,
     private val repository: ForumThreadsRepository,
@@ -185,6 +190,7 @@ class ForumThreadsViewModel(
     private var requestGeneration = 0
     private var requestJob: Job? = null
     private var interactionGeneration = 0
+    private var failedLoadOperation: ForumThreadsLoadOperation? = null
 
     init {
         refresh(initial = true)
@@ -234,11 +240,19 @@ class ForumThreadsViewModel(
     fun loadMore() {
         val snapshot = _uiState.value
         if (snapshot.isBusy || !snapshot.hasMore) return
+        failedLoadOperation = null
         val generation = ++requestGeneration
         val key = ForumThreadsRequestKey(snapshot.category, snapshot.nextPage)
         _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
         requestJob = viewModelScope.launch {
             fetch(key = key, snapshot = snapshot, generation = generation, replace = false)
+        }
+    }
+
+    fun retry() {
+        when (failedLoadOperation) {
+            ForumThreadsLoadOperation.LoadMore -> loadMore()
+            ForumThreadsLoadOperation.Refresh, null -> refresh()
         }
     }
 
@@ -329,6 +343,7 @@ class ForumThreadsViewModel(
         runCatching { repository.loadThreads(snapshot.forum, key.page, key.category) }
             .onSuccess { result ->
                 if (generation != requestGeneration || key != currentRequestKey(key.page)) return@onSuccess
+                failedLoadOperation = null
                 _uiState.update { current ->
                     applyForumPage(current, result, replace)
                 }
@@ -345,6 +360,11 @@ class ForumThreadsViewModel(
             .onFailure { error ->
                 if (error is CancellationException) throw error
                 if (generation != requestGeneration || key != currentRequestKey(key.page)) return@onFailure
+                failedLoadOperation = if (replace) {
+                    ForumThreadsLoadOperation.Refresh
+                } else {
+                    ForumThreadsLoadOperation.LoadMore
+                }
                 _uiState.update {
                     it.copy(
                         isInitialLoading = false,
@@ -357,6 +377,7 @@ class ForumThreadsViewModel(
     }
 
     private fun invalidateActiveRequest() {
+        failedLoadOperation = null
         requestGeneration += 1
         requestJob?.cancel()
         requestJob = null

@@ -96,6 +96,11 @@ private data class SearchRequestKey(
     val page: Int,
 )
 
+private enum class SearchLoadOperation {
+    Refresh,
+    LoadMore,
+}
+
 class SearchViewModel private constructor(
     private val repository: SearchRepository,
     private val scope: SearchScope = SearchScope.Global,
@@ -120,6 +125,7 @@ class SearchViewModel private constructor(
     private val modelScope = coroutineScope ?: viewModelScope
     private var generation = 0
     private var requestJob: Job? = null
+    private var failedLoadOperation: SearchLoadOperation? = null
 
     init {
         modelScope.launch {
@@ -243,16 +249,25 @@ class SearchViewModel private constructor(
     fun loadMore() {
         val snapshot = _uiState.value
         if (snapshot.submittedKeyword.isBlank() || snapshot.isBusy || !snapshot.hasMore) return
+        failedLoadOperation = null
         val requestGeneration = ++generation
         val key = SearchRequestKey(snapshot.submittedKeyword, snapshot.filter, snapshot.sort, snapshot.nextPage)
         _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
         requestJob = modelScope.launch { fetch(key, requestGeneration, replace = false) }
     }
 
+    fun retry() {
+        when (failedLoadOperation) {
+            SearchLoadOperation.LoadMore -> loadMore()
+            SearchLoadOperation.Refresh, null -> refresh()
+        }
+    }
+
     private suspend fun fetch(key: SearchRequestKey, requestGeneration: Int, replace: Boolean) {
         runCatching { repository.search(key.keyword, scope, key.filter, key.sort, key.page) }
             .onSuccess { result ->
                 if (requestGeneration != generation || key != currentKey(key.page)) return@onSuccess
+                failedLoadOperation = null
                 _uiState.update { current ->
                     current.copy(
                         items = if (replace) result.items.distinctBy(SearchItem::stableId)
@@ -268,6 +283,11 @@ class SearchViewModel private constructor(
             .onFailure { error ->
                 if (error is CancellationException) throw error
                 if (requestGeneration != generation || key != currentKey(key.page)) return@onFailure
+                failedLoadOperation = if (replace) {
+                    SearchLoadOperation.Refresh
+                } else {
+                    SearchLoadOperation.LoadMore
+                }
                 _uiState.update {
                     it.copy(
                         isInitialLoading = false,
@@ -280,6 +300,7 @@ class SearchViewModel private constructor(
     }
 
     private fun invalidateActiveRequest() {
+        failedLoadOperation = null
         generation += 1
         requestJob?.cancel()
         requestJob = null

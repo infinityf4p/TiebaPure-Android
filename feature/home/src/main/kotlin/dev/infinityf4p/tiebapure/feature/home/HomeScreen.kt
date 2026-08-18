@@ -90,6 +90,7 @@ fun HomeRoute(
         callbacks = callbacks,
         onRefresh = { viewModel.refresh() },
         onLoadMore = viewModel::loadMore,
+        onRetry = viewModel::retry,
         programmaticRefreshRequest = programmaticRefreshRequest,
         mediaLoadingPolicy = mediaLoadingPolicy,
         modifier = modifier,
@@ -103,6 +104,7 @@ fun HomeScreen(
     callbacks: HomeCallbacks,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit = onRefresh,
     programmaticRefreshRequest: Long = 0L,
     mediaLoadingPolicy: ReaderMediaLoadingPolicy = ReaderMediaLoadingPolicy.Automatic,
     modifier: Modifier = Modifier,
@@ -192,6 +194,7 @@ fun HomeScreen(
                             EmptyPageContinuation(
                                 isLoading = uiState.isRefreshing || uiState.isLoadingMore,
                                 error = uiState.errorMessage,
+                                onRetry = onRetry,
                                 onLoadMore = onLoadMore,
                             )
                         }
@@ -200,7 +203,7 @@ fun HomeScreen(
                         title = "加载失败",
                         message = uiState.errorMessage,
                         action = "重试",
-                        onAction = onRefresh,
+                        onAction = onRetry,
                     )
                     uiState.threads.isEmpty() -> CenteredMessage(
                         title = "暂无推荐",
@@ -239,7 +242,8 @@ fun HomeScreen(
                                 isLoading = uiState.isLoadingMore,
                                 error = uiState.errorMessage,
                                 hasMore = uiState.hasMore,
-                                onRetry = onLoadMore,
+                                onRetry = onRetry,
+                                onLoadMore = onLoadMore,
                             )
                         }
                     }
@@ -477,6 +481,7 @@ private fun FeedFooter(
     error: String?,
     hasMore: Boolean,
     onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -487,7 +492,7 @@ private fun FeedFooter(
         when {
             isLoading -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             error != null -> TextButton(onClick = onRetry) { Text("加载失败，点击重试") }
-            hasMore -> TextButton(onClick = onRetry) { Text("加载更多帖子") }
+            hasMore -> TextButton(onClick = onLoadMore) { Text("加载更多帖子") }
             !hasMore -> Text("没有更多了", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -513,6 +518,7 @@ private fun EmptyPageMessage(title: String, message: String) {
 private fun EmptyPageContinuation(
     isLoading: Boolean,
     error: String?,
+    onRetry: () -> Unit,
     onLoadMore: () -> Unit,
 ) {
     val modifier = Modifier
@@ -524,7 +530,7 @@ private fun EmptyPageContinuation(
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         }
     } else {
-        TextButton(onClick = onLoadMore, modifier = modifier) {
+        TextButton(onClick = if (error == null) onLoadMore else onRetry, modifier = modifier) {
             Text(if (error == null) "继续加载" else "加载失败，点击重试")
         }
     }

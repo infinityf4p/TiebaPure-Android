@@ -66,6 +66,38 @@ class ForumScreenTest {
     }
 
     @Test
+    fun cachedErrorUsesRetryInsteadOfLoadMore() {
+        var retryCalls = 0
+        var loadMoreCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                ForumThreadsScreen(
+                    uiState = ForumThreadsUiState(
+                        forum = Forum(1, "测试", "测试吧"),
+                        threads = listOf(testThread(id = 8, title = "缓存主题")),
+                        hasMore = false,
+                        errorMessage = "刷新失败",
+                    ),
+                    callbacks = ForumThreadsCallbacks(),
+                    onSelectCategory = {},
+                    onTogglePinned = {},
+                    onRefresh = {},
+                    onLoadMore = { loadMoreCalls += 1 },
+                    onRetry = { retryCalls += 1 },
+                    onToggleForumFollow = {},
+                    onDismissForumActionError = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("加载失败，点击重试").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, retryCalls)
+            assertEquals(0, loadMoreCalls)
+        }
+    }
+
+    @Test
     fun invalidAuthorHasNoProfileClickAction() {
         val thread = ThreadSummary(
             id = 9,
@@ -159,3 +191,12 @@ class ForumScreenTest {
         composeRule.onNodeWithContentDescription("点赞，当前7个赞", useUnmergedTree = true).assertIsDisplayed()
     }
 }
+
+private fun testThread(id: Long, title: String) = ThreadSummary(
+    id = id,
+    title = title,
+    author = UserSummary(id, "user-$id", "用户$id", ""),
+    replyCount = 0,
+    viewCount = 0,
+    blocks = emptyList(),
+)
