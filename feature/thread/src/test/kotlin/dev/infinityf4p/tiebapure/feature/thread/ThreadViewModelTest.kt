@@ -77,6 +77,46 @@ class ThreadViewModelTest {
     }
 
     @Test
+    fun failedFilterReloadClearsPreviousRepliesAndRetriesSelectedFilter() = runTest(dispatcher) {
+        val repository = ControllableThreadRepository()
+        val viewModel = ThreadViewModel(42, repository)
+        runCurrent()
+        repository.threadCalls.single().result.complete(controllableThreadPage(replyId = 2u))
+        advanceUntilIdle()
+        assertEquals(listOf(2uL), viewModel.state.value.posts.map(Post::id))
+
+        viewModel.selectSort(ThreadReplySort.Descending)
+
+        assertEquals(ThreadReplySort.Descending, viewModel.state.value.sort)
+        assertNull(viewModel.state.value.page)
+        assertTrue(viewModel.state.value.posts.isEmpty())
+        assertTrue(viewModel.state.value.isInitialLoading)
+        runCurrent()
+        repository.threadCalls.last().result.completeExceptionally(IllegalStateException("筛选加载失败"))
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.page)
+        assertTrue(viewModel.state.value.posts.isEmpty())
+        assertFalse(viewModel.state.value.isInitialLoading)
+        assertEquals("筛选加载失败", viewModel.state.value.errorMessage)
+
+        viewModel.refresh()
+
+        assertTrue(viewModel.state.value.isInitialLoading)
+        assertFalse(viewModel.state.value.isRefreshing)
+        assertNull(viewModel.state.value.errorMessage)
+        runCurrent()
+        val retry = repository.threadCalls.last()
+        assertEquals(ThreadReplySort.Descending, retry.sort)
+        retry.result.complete(controllableThreadPage(replyId = 90u))
+        advanceUntilIdle()
+
+        assertEquals(listOf(90uL), viewModel.state.value.posts.map(Post::id))
+        assertFalse(viewModel.state.value.isInitialLoading)
+        assertNull(viewModel.state.value.errorMessage)
+    }
+
+    @Test
     fun rapidFilterChangesIgnoreSupersededInitialResults() = runTest(dispatcher) {
         val repository = ControllableThreadRepository()
         val viewModel = ThreadViewModel(42, repository)
@@ -116,6 +156,10 @@ class ThreadViewModelTest {
         advanceUntilIdle()
 
         viewModel.refresh()
+
+        assertEquals(listOf(2uL), viewModel.state.value.posts.map(Post::id))
+        assertFalse(viewModel.state.value.isInitialLoading)
+        assertTrue(viewModel.state.value.isRefreshing)
         runCurrent()
         val oldRefresh = repository.threadCalls.last()
         viewModel.refresh()
