@@ -34,6 +34,13 @@ class SettingsPolicyTest {
         assertEquals(emptyList<BlocklistEntry>(), (repository.blocklist as MutableStateFlow).value)
     }
 
+    @Test fun aboutInfoLinksToAndroidRepository() {
+        assertEquals(
+            "https://github.com/infinityf4p/TiebaPure-Android",
+            SettingsAboutInfo(versionName = "test").projectUrl,
+        )
+    }
+
     @Test fun settingsAvatarUsesOnlyCanonicalTiebaPortraitHost() {
         assertEquals("https://himg.bdimg.com/sys/portrait/item/token", settingsPortraitUrl("token"))
         assertEquals("https://himg.bdimg.com/sys/portrait/item/token", settingsPortraitUrl("token?t=1"))
