@@ -91,13 +91,13 @@ class ThreadViewModel(
     fun selectSort(sort: ThreadReplySort) {
         if (sort == mutableState.value.sort) return
         mutableState.update { it.copy(sort = sort) }
-        loadFirstPage(showRefresh = false)
+        loadFirstPage(showRefresh = false, discardCurrentContent = true)
     }
 
     fun setOnlyThreadAuthor(enabled: Boolean) {
         if (enabled == mutableState.value.onlyThreadAuthor) return
         mutableState.update { it.copy(onlyThreadAuthor = enabled) }
-        loadFirstPage(showRefresh = false)
+        loadFirstPage(showRefresh = false, discardCurrentContent = true)
     }
 
     fun loadMore() {
@@ -246,19 +246,26 @@ class ThreadViewModel(
         mutableState.update { it.copy(actionErrorMessage = null) }
     }
 
-    private fun loadFirstPage(showRefresh: Boolean) {
+    private fun loadFirstPage(
+        showRefresh: Boolean,
+        discardCurrentContent: Boolean = false,
+    ) {
         val requestState = mutableState.value
         val key = ThreadRequestKey(requestState.sort, requestState.onlyThreadAuthor, page = 1)
         val generation = beginThreadRequest(key)
+        val showsRefreshIndicator = showRefresh && requestState.page != null
+        updateThreadStateIfCurrent(generation, key) {
+            it.copy(
+                page = if (discardCurrentContent) null else it.page,
+                posts = if (discardCurrentContent) emptyList() else it.posts,
+                isInitialLoading = !showsRefreshIndicator,
+                isRefreshing = showsRefreshIndicator,
+                isLoadingMore = false,
+                errorMessage = null,
+                readingPositionToRestore = if (discardCurrentContent) null else it.readingPositionToRestore,
+            )
+        }
         threadJob = viewModelScope.launch {
-            updateThreadStateIfCurrent(generation, key) {
-                it.copy(
-                    isInitialLoading = !showRefresh,
-                    isRefreshing = showRefresh,
-                    isLoadingMore = false,
-                    errorMessage = null,
-                )
-            }
             runCatching {
                 val explicitPostId = pendingInitialPostId
                 val readingPosition = if (explicitPostId == null) {
