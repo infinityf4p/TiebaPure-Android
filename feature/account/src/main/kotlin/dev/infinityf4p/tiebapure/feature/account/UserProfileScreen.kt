@@ -104,6 +104,7 @@ fun UserProfileScreen(
             )
             profile != null -> ProfileContent(
                 state,
+                onRetry,
                 onToggleFollow,
                 onSelectTab,
                 onLoadMore,
@@ -122,6 +123,7 @@ fun UserProfileScreen(
 @OptIn(ExperimentalFoundationApi::class)
 private fun ProfileContent(
     state: UserProfileUiState,
+    onRetry: () -> Unit,
     onToggleFollow: () -> Unit,
     onSelectTab: (UserProfileTab) -> Unit,
     onLoadMore: () -> Unit,
@@ -160,11 +162,17 @@ private fun ProfileContent(
         when (state.selectedTab) {
             UserProfileTab.Threads -> {
                 when {
+                    state.threads.isEmpty() && (state.isInitialLoading || state.isRefreshing) -> item {
+                        ProfileThreadState(ReaderState.Loading("正在加载帖子"))
+                    }
                     state.threadVisibility == UserContentVisibility.Private -> item {
                         ProfileEmpty("该用户已隐藏帖子动态", "对方没有公开个人帖子，当前无法查看。")
                     }
                     state.threads.isEmpty() && state.errorMessage != null -> item {
-                        ProfileEmpty("帖子加载失败", state.errorMessage)
+                        ProfileThreadState(
+                            ReaderState.Error("帖子加载失败", state.errorMessage),
+                            onRetry = onRetry,
+                        )
                     }
                     state.threads.isEmpty() -> item {
                         ProfileEmpty(
@@ -365,6 +373,16 @@ private fun ProfileForumRow(forum: Forum, onClick: () -> Unit) {
         )
     }
     HorizontalDivider(modifier = Modifier.padding(start = 68.dp))
+}
+
+@Composable
+private fun ProfileThreadState(
+    state: ReaderState,
+    onRetry: (() -> Unit)? = null,
+) {
+    Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).heightIn(min = 220.dp)) {
+        ReaderStatePane(state, onRetry = onRetry)
+    }
 }
 
 @Composable

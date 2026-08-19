@@ -8,7 +8,10 @@ android {
     namespace = "dev.infinityf4p.tiebapure.feature.account"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
-    defaultConfig { minSdk = 23 }
+    defaultConfig {
+        minSdk = 23
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -34,4 +37,11 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
