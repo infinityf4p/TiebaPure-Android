@@ -62,6 +62,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderCard
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderInteractionStats
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderSectionBand
+import dev.infinityf4p.tiebapure.core.designsystem.ReaderState
+import dev.infinityf4p.tiebapure.core.designsystem.ReaderStatePane
 import dev.infinityf4p.tiebapure.core.designsystem.ThreadMediaPreview
 import dev.infinityf4p.tiebapure.core.designsystem.TiebaPureTheme
 import dev.infinityf4p.tiebapure.core.media.AvatarImage
@@ -222,13 +224,12 @@ private fun SearchResultsContent(
             }
             when {
                 state.isInitialLoading -> item { Box(Modifier.fillMaxWidth().height(180.dp), Alignment.Center) { CircularProgressIndicator() } }
-                state.errorMessage != null && state.items.isEmpty() -> item {
-                    Box(Modifier.fillMaxWidth().height(132.dp), Alignment.Center) {
-                        if (state.showsEmptyPageContinuation) {
-                            Text(state.errorMessage, color = MaterialTheme.colorScheme.error)
-                        } else {
-                            TextButton(onClick = onRetry) { Text("${state.errorMessage} 点击重试") }
-                        }
+                state.errorMessage != null && state.items.isEmpty() -> item(key = "empty-error") {
+                    Box(Modifier.fillMaxWidth().heightIn(min = 180.dp)) {
+                        ReaderStatePane(
+                            ReaderState.Error("搜索失败", state.errorMessage),
+                            onRetry = onRetry,
+                        )
                     }
                 }
                 state.items.isEmpty() -> item {
@@ -265,7 +266,7 @@ private fun SearchResultsContent(
                     }
                 }
             }
-            if (state.showsEmptyPageContinuation) {
+            if (state.showsEmptyPageContinuation && state.errorMessage == null) {
                 item(key = "empty-page-continuation") {
                     EmptyPageContinuation(
                         isLoading = state.isRefreshing || state.isLoadingMore,

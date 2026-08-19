@@ -2,7 +2,9 @@ package dev.infinityf4p.tiebapure.feature.search
 
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -112,6 +114,41 @@ class SearchScreenTest {
             assertEquals(1, retryCalls)
             assertEquals(0, loadMoreCalls)
         }
+    }
+
+    @Test
+    fun emptySearchErrorIsReadableAndRenderedOnce() {
+        var retryCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        input = "测试",
+                        submittedKeyword = "测试",
+                        items = emptyList(),
+                        hasMore = true,
+                        errorMessage = SEARCH_FAILURE_MESSAGE,
+                    ),
+                    callbacks = SearchCallbacks(),
+                    onInputChanged = {},
+                    onSubmit = {},
+                    onClearQuery = {},
+                    onSelectHistory = {},
+                    onRemoveHistory = {},
+                    onClearHistory = {},
+                    onSelectFilter = {},
+                    onSelectSort = {},
+                    onRefresh = {},
+                    onLoadMore = {},
+                    onRetry = { retryCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText(SEARCH_FAILURE_MESSAGE).assertCountEquals(1)
+        composeRule.onNodeWithTag("search-empty-page-load-more").assertDoesNotExist()
+        composeRule.onNodeWithText("重试").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(1, retryCalls) }
     }
 
     @Test
