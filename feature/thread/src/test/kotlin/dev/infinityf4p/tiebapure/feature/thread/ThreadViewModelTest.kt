@@ -177,6 +177,62 @@ class ThreadViewModelTest {
     }
 
     @Test
+    fun cachedRefreshFailureKeepsRepliesAndRetriesFirstPage() = runTest(dispatcher) {
+        val repository = ControllableThreadRepository()
+        val viewModel = ThreadViewModel(42, repository)
+        runCurrent()
+        repository.threadCalls.single().result.complete(controllableThreadPage(replyId = 2u, hasMore = false))
+        advanceUntilIdle()
+
+        viewModel.refresh()
+        runCurrent()
+        repository.threadCalls.last().result.completeExceptionally(IllegalStateException("刷新失败"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(2uL), viewModel.state.value.posts.map(Post::id))
+        assertEquals("刷新失败", viewModel.state.value.errorMessage)
+        assertFalse(viewModel.state.value.isRefreshing)
+
+        viewModel.retry()
+        runCurrent()
+        val retry = repository.threadCalls.last()
+        assertEquals(1, retry.page)
+        retry.result.complete(controllableThreadPage(replyId = 3u, hasMore = false))
+        advanceUntilIdle()
+
+        assertEquals(listOf(3uL), viewModel.state.value.posts.map(Post::id))
+        assertNull(viewModel.state.value.errorMessage)
+    }
+
+    @Test
+    fun paginationFailureKeepsRepliesAndRetriesNextPage() = runTest(dispatcher) {
+        val repository = ControllableThreadRepository()
+        val viewModel = ThreadViewModel(42, repository)
+        runCurrent()
+        repository.threadCalls.single().result.complete(controllableThreadPage(replyId = 2u, hasMore = true))
+        advanceUntilIdle()
+
+        viewModel.loadMore()
+        runCurrent()
+        repository.threadCalls.last().result.completeExceptionally(IllegalStateException("分页失败"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(2uL), viewModel.state.value.posts.map(Post::id))
+        assertEquals("分页失败", viewModel.state.value.errorMessage)
+        assertFalse(viewModel.state.value.isLoadingMore)
+
+        viewModel.retry()
+        runCurrent()
+        val retry = repository.threadCalls.last()
+        assertEquals(2, retry.page)
+        retry.result.complete(controllableThreadPage(replyId = 3u, page = 2, hasMore = false))
+        advanceUntilIdle()
+
+        assertEquals(listOf(2uL, 3uL), viewModel.state.value.posts.map(Post::id))
+        assertNull(viewModel.state.value.errorMessage)
+    }
+
+    @Test
     fun stalePaginationCannotAppendAfterFilterReload() = runTest(dispatcher) {
         val repository = ControllableThreadRepository()
         val viewModel = ThreadViewModel(42, repository)

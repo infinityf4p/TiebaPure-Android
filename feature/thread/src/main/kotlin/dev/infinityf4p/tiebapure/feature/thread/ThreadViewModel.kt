@@ -51,6 +51,8 @@ private data class ThreadRequestKey(
     val page: Int,
 )
 
+private enum class ThreadLoadOperation { Refresh, LoadMore }
+
 private data class SubpostRequestKey(
     val parentPostId: ULong,
     val page: Int,
@@ -78,6 +80,7 @@ class ThreadViewModel(
     private var lastPersistedReadingPosition: ThreadReadingPosition? = null
     private var pendingReadingPosition: ThreadReadingPosition? = null
     private var pendingInitialPostId = initialPostId?.takeIf { it > 0uL }
+    private var failedLoadOperation: ThreadLoadOperation? = null
 
     init {
         require(threadId > 0) { "threadId must be positive" }
@@ -105,6 +108,7 @@ class ThreadViewModel(
         val page = snapshot.page ?: return
         if (!page.hasMore || snapshot.isLoadingMore || snapshot.isRefreshing || snapshot.isInitialLoading) return
 
+        failedLoadOperation = null
         val key = ThreadRequestKey(snapshot.sort, snapshot.onlyThreadAuthor, page.currentPage + 1)
         val generation = beginThreadRequest(key)
         threadJob = viewModelScope.launch {
@@ -128,10 +132,19 @@ class ThreadViewModel(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                if (!isCurrentThreadRequest(generation, key)) return@onFailure
+                failedLoadOperation = ThreadLoadOperation.LoadMore
                 updateThreadStateIfCurrent(generation, key) {
                     it.copy(isLoadingMore = false, errorMessage = error.userFacingMessage())
                 }
             }
+        }
+    }
+
+    fun retry() {
+        when (failedLoadOperation) {
+            ThreadLoadOperation.LoadMore -> loadMore()
+            ThreadLoadOperation.Refresh, null -> refresh()
         }
     }
 
@@ -251,6 +264,7 @@ class ThreadViewModel(
         discardCurrentContent: Boolean = false,
     ) {
         val requestState = mutableState.value
+        failedLoadOperation = null
         val key = ThreadRequestKey(requestState.sort, requestState.onlyThreadAuthor, page = 1)
         val generation = beginThreadRequest(key)
         val showsRefreshIndicator = showRefresh && requestState.page != null
@@ -368,6 +382,8 @@ class ThreadViewModel(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                if (!isCurrentThreadRequest(generation, key)) return@onFailure
+                failedLoadOperation = ThreadLoadOperation.Refresh
                 updateThreadStateIfCurrent(generation, key) {
                     it.copy(
                         isInitialLoading = false,

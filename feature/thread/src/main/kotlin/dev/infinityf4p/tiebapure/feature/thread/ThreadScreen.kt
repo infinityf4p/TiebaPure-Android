@@ -143,6 +143,7 @@ fun ThreadRoute(
             onForumClick = onForumClick,
             onRefresh = viewModel::refresh,
             onLoadMore = viewModel::loadMore,
+            onRetry = viewModel::retry,
             onSort = viewModel::selectSort,
             onOnlyAuthor = viewModel::setOnlyThreadAuthor,
             onReply = onReply,
@@ -176,6 +177,7 @@ fun ThreadScreen(
     onForumClick: ((Forum) -> Unit)? = null,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
     onSort: (ThreadReplySort) -> Unit,
     onOnlyAuthor: (Boolean) -> Unit,
     onReply: (ThreadReplyTarget) -> Unit,
@@ -349,7 +351,7 @@ fun ThreadScreen(
         ) {
             when {
                 state.isInitialLoading && state.page == null -> LoadingState()
-                state.page == null -> ErrorState(state.errorMessage, onRefresh)
+                state.page == null -> ErrorState(state.errorMessage, onRetry)
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -419,7 +421,7 @@ fun ThreadScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                     item(key = "footer") {
-                        ThreadFooter(state, onLoadMore)
+                        ThreadFooter(state, onLoadMore, onRetry)
                     }
                 }
             }
@@ -674,16 +676,22 @@ private fun CompactFilterButton(
 }
 
 @Composable
-private fun ThreadFooter(state: ThreadUiState, onLoadMore: () -> Unit) {
+private fun ThreadFooter(
+    state: ThreadUiState,
+    onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
+) {
     Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
         when (
             threadFooterContent(
                 hasPage = state.page != null,
                 isLoadingMore = state.isLoadingMore,
                 hasMore = state.page?.hasMore == true,
+                hasError = state.errorMessage != null,
             )
         ) {
             ThreadFooterContent.Loading -> CircularProgressIndicator()
+            ThreadFooterContent.Error -> TextButton(onClick = onRetry) { Text("加载失败，点击重试") }
             ThreadFooterContent.LoadMore -> TextButton(onClick = onLoadMore) { Text("加载更多回复") }
             ThreadFooterContent.End -> Text(
                 "没有更多回复了",

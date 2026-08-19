@@ -17,6 +17,7 @@ internal fun ThreadCapabilities.actionVisibility(hasPage: Boolean): ThreadAction
 
 internal enum class ThreadFooterContent {
     Loading,
+    Error,
     LoadMore,
     End,
 }
@@ -25,9 +26,11 @@ internal fun threadFooterContent(
     hasPage: Boolean,
     isLoadingMore: Boolean,
     hasMore: Boolean,
+    hasError: Boolean = false,
 ): ThreadFooterContent? = when {
     !hasPage -> null
     isLoadingMore -> ThreadFooterContent.Loading
+    hasError -> ThreadFooterContent.Error
     hasMore -> ThreadFooterContent.LoadMore
     else -> ThreadFooterContent.End
 }
