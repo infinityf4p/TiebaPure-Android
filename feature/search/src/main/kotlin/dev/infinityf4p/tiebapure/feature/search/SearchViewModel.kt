@@ -101,6 +101,8 @@ private enum class SearchLoadOperation {
     LoadMore,
 }
 
+internal const val SEARCH_FAILURE_MESSAGE = "请检查网络连接后重试。"
+
 class SearchViewModel private constructor(
     private val repository: SearchRepository,
     private val scope: SearchScope = SearchScope.Global,
@@ -293,7 +295,7 @@ class SearchViewModel private constructor(
                         isInitialLoading = false,
                         isRefreshing = false,
                         isLoadingMore = false,
-                        errorMessage = error.message ?: "搜索失败，请稍后重试。",
+                        errorMessage = SEARCH_FAILURE_MESSAGE,
                     )
                 }
             }

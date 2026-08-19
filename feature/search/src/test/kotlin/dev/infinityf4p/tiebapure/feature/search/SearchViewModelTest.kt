@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import org.junit.Test
+import java.io.IOException
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -100,6 +101,18 @@ class SearchViewModelTest {
 
         assertEquals(listOf(1, 2, 2), repository.calls.map(ControllableSearchRepository.Call::page))
         repository.calls.last().result.complete(page(threadId = 2, currentPage = 2, hasMore = false))
+    }
+
+    @Test
+    fun failureDoesNotExposeRawTransportDetails() = withViewModel { viewModel, repository ->
+        viewModel.updateInput("测试")
+        viewModel.submit()
+        repository.calls.single().result.completeExceptionally(
+            IOException("unexpected end of stream on https://tieba.baidu.com/f/search/res?kw=test"),
+        )
+
+        assertEquals(SEARCH_FAILURE_MESSAGE, viewModel.uiState.value.errorMessage)
+        assertFalse(viewModel.uiState.value.errorMessage.orEmpty().contains("tieba.baidu.com"))
     }
 
     private fun withViewModel(block: (SearchViewModel, ControllableSearchRepository) -> Unit) {
