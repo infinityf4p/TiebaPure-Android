@@ -103,6 +103,10 @@ class ThreadFormattingTest {
             threadFooterContent(hasPage = true, isLoadingMore = true, hasMore = true),
         )
         assertEquals(
+            ThreadFooterContent.Error,
+            threadFooterContent(hasPage = true, isLoadingMore = false, hasMore = false, hasError = true),
+        )
+        assertEquals(
             ThreadFooterContent.LoadMore,
             threadFooterContent(hasPage = true, isLoadingMore = false, hasMore = true),
         )

@@ -103,6 +103,31 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun cachedErrorFooterUsesRetryInsteadOfPagination() {
+        var retryCalls = 0
+        var loadMoreCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                TestThreadScreen(
+                    state = threadState().copy(errorMessage = "刷新失败"),
+                    onLoadMore = { loadMoreCalls += 1 },
+                    onRetry = { retryCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("加载失败，点击重试")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, retryCalls)
+            assertEquals(0, loadMoreCalls)
+        }
+    }
+
+    @Test
     fun openAllRepliesKeepsCompactVisualWithinFortyEightDpTouchTarget() {
         val parent = replyPost(
             id = 2uL,
@@ -169,6 +194,8 @@ private fun TestThreadScreen(
     state: ThreadUiState,
     capabilities: ThreadCapabilities = ThreadCapabilities(),
     onForumClick: ((Forum) -> Unit)? = null,
+    onLoadMore: () -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
     ThreadScreen(
         state = state,
@@ -176,7 +203,8 @@ private fun TestThreadScreen(
         onBack = {},
         onForumClick = onForumClick,
         onRefresh = {},
-        onLoadMore = {},
+        onLoadMore = onLoadMore,
+        onRetry = onRetry,
         onSort = {},
         onOnlyAuthor = {},
         onReply = {},
