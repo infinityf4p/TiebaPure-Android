@@ -9,11 +9,14 @@ import dev.infinityf4p.tiebapure.core.data.RecentForumEntity
 import dev.infinityf4p.tiebapure.core.data.SearchHistoryEntity
 import dev.infinityf4p.tiebapure.core.data.TiebaPureDatabase
 import dev.infinityf4p.tiebapure.core.data.TiebaRepositories
+import dev.infinityf4p.tiebapure.core.data.ThreadRepository as DataThreadRepository
 import dev.infinityf4p.tiebapure.core.model.Account
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionKind
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionTarget
 import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ForumMembership
+import dev.infinityf4p.tiebapure.core.model.ThreadPage
+import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.TiebaBlocklistSnapshot
 import dev.infinityf4p.tiebapure.core.model.TiebaContentFilterPolicy
@@ -254,9 +257,8 @@ class AppFeatureRepositories(
             onlyThreadAuthor: Boolean,
         ): dev.infinityf4p.tiebapure.core.model.ThreadPage {
             val result = TiebaContentFilterPolicy.filter(
-                repositories.thread.page(
+                repositories.thread.pageAroundPost(
                     threadId = threadId,
-                    page = 0,
                     postId = postId,
                     onlyThreadAuthor = onlyThreadAuthor,
                     sort = sort,
@@ -436,6 +438,21 @@ internal fun recentForumEntity(
         visitedAtMilliseconds = visitedAtMilliseconds,
     )
 }
+
+internal suspend fun DataThreadRepository.pageAroundPost(
+    threadId: Long,
+    postId: ULong,
+    onlyThreadAuthor: Boolean,
+    sort: ThreadReplySort,
+    account: Account?,
+): ThreadPage = page(
+    threadId = threadId,
+    page = 1,
+    postId = postId,
+    onlyThreadAuthor = onlyThreadAuthor,
+    sort = sort,
+    account = account,
+)
 
 private fun filterThreads(
     threads: List<ThreadSummary>,
