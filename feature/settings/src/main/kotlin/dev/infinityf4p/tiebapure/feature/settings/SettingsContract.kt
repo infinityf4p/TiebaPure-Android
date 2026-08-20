@@ -10,9 +10,9 @@ enum class SettingsAppearance { System, Light, Dark }
 
 data class SettingsValues(
     val appearance: SettingsAppearance = SettingsAppearance.System,
-    val postingEnabled: Boolean = true,
+    val postingEnabled: Boolean = false,
     val replyingEnabled: Boolean = false,
-    val likingEnabled: Boolean = true,
+    val likingEnabled: Boolean = false,
     val automaticSignEnabled: Boolean = false,
     val submissionRiskAcknowledged: Boolean = false,
     val reading: ReadingPreferences = ReadingPreferences(),
