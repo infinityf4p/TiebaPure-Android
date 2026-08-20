@@ -17,11 +17,15 @@ private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 
 enum class AppAppearance { System, Light, Dark }
 
+private const val DEFAULT_POSTING_ENABLED = false
+private const val DEFAULT_REPLYING_ENABLED = false
+private const val DEFAULT_LIKING_ENABLED = false
+
 data class AppSettings(
     val appearance: AppAppearance = AppAppearance.System,
-    val postingEnabled: Boolean = true,
-    val replyingEnabled: Boolean = false,
-    val likingEnabled: Boolean = true,
+    val postingEnabled: Boolean = DEFAULT_POSTING_ENABLED,
+    val replyingEnabled: Boolean = DEFAULT_REPLYING_ENABLED,
+    val likingEnabled: Boolean = DEFAULT_LIKING_ENABLED,
     val autoSignEnabled: Boolean = false,
     val submissionRiskAcknowledged: Boolean = false,
     val reading: ReadingPreferences = ReadingPreferences(),
@@ -33,9 +37,9 @@ class AppSettingsStore(private val context: Context) {
             appearance = runCatching {
                 AppAppearance.valueOf(preferences[Keys.appearance] ?: AppAppearance.System.name)
             }.getOrDefault(AppAppearance.System),
-            postingEnabled = preferences[Keys.posting] ?: true,
-            replyingEnabled = preferences[Keys.replying] ?: false,
-            likingEnabled = preferences[Keys.liking] ?: true,
+            postingEnabled = preferences[Keys.posting] ?: DEFAULT_POSTING_ENABLED,
+            replyingEnabled = preferences[Keys.replying] ?: DEFAULT_REPLYING_ENABLED,
+            likingEnabled = preferences[Keys.liking] ?: DEFAULT_LIKING_ENABLED,
             autoSignEnabled = preferences[Keys.autoSign] ?: false,
             submissionRiskAcknowledged = preferences[Keys.submissionRiskV2] ?: false,
             reading = ReadingPreferences(

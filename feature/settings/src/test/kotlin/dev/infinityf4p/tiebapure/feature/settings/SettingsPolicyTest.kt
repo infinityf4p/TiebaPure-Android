@@ -6,10 +6,19 @@ import dev.infinityf4p.tiebapure.core.model.BlocklistPolicy
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SettingsPolicyTest {
+    @Test fun writeActionsRequireExplicitOptIn() {
+        val settings = SettingsValues()
+
+        assertFalse(settings.postingEnabled)
+        assertFalse(settings.replyingEnabled)
+        assertFalse(settings.likingEnabled)
+    }
+
     @Test fun labelsRemainStable() {
         assertEquals("跟随系统", appearanceLabel(SettingsAppearance.System))
     }
