@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -106,6 +107,7 @@ fun ThreadRoute(
     onReply: (ThreadReplyTarget) -> Unit,
     onUserClick: (Long) -> Unit,
     onLinkClick: (String) -> Unit,
+    onShare: (String) -> Unit,
     onDownloadImage: (ImageContent) -> Unit,
     onSaveImage: ImageSaveAction? = null,
     readingPreferences: ReadingPreferences = ReadingPreferences(),
@@ -149,6 +151,7 @@ fun ThreadRoute(
             onReply = onReply,
             onUserClick = onUserClick,
             onLinkClick = onLinkClick,
+            onShare = { onShare(buildThreadShareUrl(threadId)) },
             onOpenSubposts = viewModel::openSubposts,
             onCloseSubposts = viewModel::closeSubposts,
             onLoadMoreSubposts = viewModel::loadMoreSubposts,
@@ -183,6 +186,7 @@ fun ThreadScreen(
     onReply: (ThreadReplyTarget) -> Unit,
     onUserClick: (Long) -> Unit,
     onLinkClick: (String) -> Unit,
+    onShare: () -> Unit,
     onOpenSubposts: (Post) -> Unit,
     onCloseSubposts: () -> Unit,
     onLoadMoreSubposts: () -> Unit,
@@ -297,6 +301,12 @@ fun ThreadScreen(
                                 )
                             }
                         }
+                    }
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.testTag("thread-share-action"),
+                    ) {
+                        Icon(Icons.Outlined.Share, contentDescription = "分享帖子")
                     }
                     IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
@@ -472,6 +482,11 @@ fun ThreadScreen(
         )
     }
     video?.let { selected -> VideoPlayer(selected, onDismiss = { video = null }) }
+}
+
+internal fun buildThreadShareUrl(threadId: Long): String {
+    require(threadId > 0) { "threadId must be positive" }
+    return "https://tieba.baidu.com/p/$threadId"
 }
 
 @Composable
