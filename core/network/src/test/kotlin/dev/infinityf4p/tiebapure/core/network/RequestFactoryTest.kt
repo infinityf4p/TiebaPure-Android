@@ -4,9 +4,12 @@ import dev.infinityf4p.tiebapure.core.model.ContentSubmissionKind
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionRequest
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionTarget
 import dev.infinityf4p.tiebapure.core.model.TiebaLikeObjectType
+import java.net.URLDecoder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RequestFactoryTest {
@@ -16,6 +19,51 @@ class RequestFactoryTest {
 
         assertTrue(request.url.encodedQuery!!.contains("word=C%2B%2B"))
         assertFalse(request.url.encodedQuery!!.contains("word=C++"))
+    }
+
+    @Test
+    fun replyMessagesUseSignedLegacyClientProfile() {
+        val request = TiebaReadRequestFactory.messages(
+            account = testAccount(),
+            page = 2,
+            mention = false,
+            builder = testRequestBuilder(),
+        )
+        val fields = request.formFields()
+        val signature = assertNotNull(fields["sign"])
+
+        assertEquals(TiebaEndpoint.ReplyMessages.url, request.url)
+        assertEquals("POST", request.method)
+        assertEquals("bdtb for Android 8.2.2", request.header("User-Agent"))
+        assertEquals("ka=open", request.header("Cookie"))
+        assertEquals("no-cache", request.header("Pragma"))
+        assertEquals("CLIENT|000000000000000", request.header("cuid"))
+        assertEquals("bduss", fields["BDUSS"])
+        assertEquals("2", fields["pn"])
+        assertEquals("client", fields["_client_id"])
+        assertEquals("2", fields["_client_type"])
+        assertEquals("8.2.2", fields["_client_version"])
+        assertEquals("baidu_appstore", fields["from"])
+        assertEquals("1", fields["net_type"])
+        assertEquals("0", fields["stErrorNums"])
+        assertEquals("1725000000000", fields["timestamp"])
+        assertNull(fields["subapp_type"])
+        assertNull(fields["cuid_galaxy2"])
+        assertEquals(TiebaFormSigner.sign(fields - "sign"), signature)
+    }
+
+    @Test
+    fun mentionMessagesUseAtMeEndpointAndSignature() {
+        val request = TiebaReadRequestFactory.messages(
+            account = testAccount(),
+            page = 1,
+            mention = true,
+            builder = testRequestBuilder(),
+        )
+        val fields = request.formFields()
+
+        assertEquals(TiebaEndpoint.MentionMessages.url, request.url)
+        assertEquals(TiebaFormSigner.sign(fields - "sign"), fields["sign"])
     }
 
     @Test
@@ -150,5 +198,15 @@ class RequestFactoryTest {
         assertEquals("BDUSS=bduss; STOKEN=stoken", upload.header("Cookie"))
         val body = okio.Buffer().also { upload.body!!.writeTo(it) }.readUtf8()
         assertTrue(body.contains("pic=AQ%3D%3D"))
+    }
+}
+
+private fun okhttp3.Request.formFields(): Map<String, String> {
+    val body = okio.Buffer().also { this.body!!.writeTo(it) }.readUtf8()
+    return body.split('&').associate { pair ->
+        val separator = pair.indexOf('=')
+        require(separator >= 0) { "Malformed form field" }
+        URLDecoder.decode(pair.substring(0, separator), Charsets.UTF_8) to
+            URLDecoder.decode(pair.substring(separator + 1), Charsets.UTF_8)
     }
 }
