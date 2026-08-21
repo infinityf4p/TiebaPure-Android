@@ -745,6 +745,7 @@ private fun AppNavigationHost(
                     },
                     onUserClick = { navController.navigate(userRoute(UserSummary(it, "", "", ""))) },
                     onLinkClick = { openPublicLink(context, it) },
+                    onShare = { sharePublicLink(context, it) },
                     onDownloadImage = requestImageDownload,
                     onSaveImage = saveImageAction,
                     readingPreferences = settings.reading,
@@ -1185,6 +1186,18 @@ private fun openPublicLink(context: Context, rawUrl: String) {
     val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return
     if (uri.scheme != "https") return
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+}
+
+private fun sharePublicLink(context: Context, rawUrl: String) {
+    val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return
+    if (uri.scheme != "https" || uri.host != "tieba.baidu.com") return
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, uri.toString())
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(sendIntent, "分享帖子"))
+    }
 }
 
 private suspend fun saveImageToMediaStore(

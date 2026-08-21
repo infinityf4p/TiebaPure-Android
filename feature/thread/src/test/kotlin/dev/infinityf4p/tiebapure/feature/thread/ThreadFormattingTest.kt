@@ -3,12 +3,19 @@ package dev.infinityf4p.tiebapure.feature.thread
 import dev.infinityf4p.tiebapure.core.model.Forum
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import java.util.Locale
 import java.util.TimeZone
 import java.text.SimpleDateFormat
 
 class ThreadFormattingTest {
+    @Test
+    fun shareUrlUsesOfficialTiebaThreadAddress() {
+        assertEquals("https://tieba.baidu.com/p/7", buildThreadShareUrl(7))
+        assertFailsWith<IllegalArgumentException> { buildThreadShareUrl(0) }
+    }
+
     @Test
     fun countsStayOnOneLineWithCompactUnits() {
         assertEquals("999", formatCount(999))

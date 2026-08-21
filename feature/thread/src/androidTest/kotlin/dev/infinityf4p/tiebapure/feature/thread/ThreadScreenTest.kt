@@ -92,6 +92,30 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun shareActionRemainsAvailableInReadOnlyModeAndInvokesCallback() {
+        var shareCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                TestThreadScreen(
+                    state = threadState(),
+                    capabilities = ThreadCapabilities(
+                        canReply = false,
+                        canLike = false,
+                        canCollect = false,
+                    ),
+                    onShare = { shareCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("thread-share-action")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.runOnIdle { assertEquals(1, shareCalls) }
+    }
+
+    @Test
     fun resolvedEmptyReplyListShowsTerminalMessage() {
         composeRule.setContent {
             TiebaPureTheme { TestThreadScreen(state = threadState(posts = emptyList())) }
@@ -196,6 +220,7 @@ private fun TestThreadScreen(
     onForumClick: ((Forum) -> Unit)? = null,
     onLoadMore: () -> Unit = {},
     onRetry: () -> Unit = {},
+    onShare: () -> Unit = {},
 ) {
     ThreadScreen(
         state = state,
@@ -210,6 +235,7 @@ private fun TestThreadScreen(
         onReply = {},
         onUserClick = {},
         onLinkClick = {},
+        onShare = onShare,
         onOpenSubposts = {},
         onCloseSubposts = {},
         onLoadMoreSubposts = {},
