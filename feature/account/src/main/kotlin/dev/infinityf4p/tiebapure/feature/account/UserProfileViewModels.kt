@@ -10,6 +10,7 @@ import dev.infinityf4p.tiebapure.core.model.UserRelationshipKind
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import dev.infinityf4p.tiebapure.core.model.mutationOutcomeUnknownMessageOrNull
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,7 @@ data class UserProfileUiState(
     val threads: List<ThreadSummary> = emptyList(),
     val threadVisibility: UserContentVisibility = UserContentVisibility.Visible,
     val deletionTargets: Map<Long, OwnThreadDeletionTarget> = emptyMap(),
-    val isInitialLoading: Boolean = true,
+    val isInitialLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val isMutatingFollow: Boolean = false,
@@ -40,33 +41,41 @@ data class UserProfileUiState(
         get() = isInitialLoading || isRefreshing || isLoadingMore
 }
 
-class UserProfileViewModel(
+class UserProfileViewModel internal constructor(
     private val user: UserSummary,
     private val repository: UserProfileRepository,
+    coroutineScope: CoroutineScope?,
 ) : ViewModel() {
+    constructor(user: UserSummary, repository: UserProfileRepository) : this(
+        user,
+        repository,
+        coroutineScope = null,
+    )
+
     private val _uiState = MutableStateFlow(UserProfileUiState())
     val uiState: StateFlow<UserProfileUiState> = _uiState.asStateFlow()
+    private val modelScope = coroutineScope ?: viewModelScope
     private var requestGeneration = 0
 
     init {
-        refresh(initial = true)
+        refresh()
     }
 
     fun selectTab(tab: UserProfileTab) {
         _uiState.update { it.copy(selectedTab = tab) }
     }
 
-    fun refresh(initial: Boolean = false) {
+    fun refresh() {
         if (_uiState.value.isBusy) return
         val generation = ++requestGeneration
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isInitialLoading = initial && it.profile == null,
-                    isRefreshing = !initial || it.profile != null,
-                    errorMessage = null,
-                )
-            }
+        _uiState.update {
+            it.copy(
+                isInitialLoading = it.profile == null,
+                isRefreshing = it.profile != null,
+                errorMessage = null,
+            )
+        }
+        modelScope.launch {
             try {
                 val profile = repository.loadProfile(user)
                 if (generation != requestGeneration) return@launch
@@ -104,7 +113,7 @@ class UserProfileViewModel(
         val snapshot = _uiState.value
         if (snapshot.isBusy || !snapshot.hasMoreThreads || snapshot.threadVisibility == UserContentVisibility.Private) return
         val generation = requestGeneration
-        viewModelScope.launch {
+        modelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
             runCatching { repository.loadThreads(user, snapshot.nextThreadPage) }
                 .onSuccess { page ->
@@ -135,7 +144,7 @@ class UserProfileViewModel(
         val target = !profile.isFollowed
         val optimistic = profile.withFollow(target)
         _uiState.update { it.copy(profile = optimistic, isMutatingFollow = true, actionError = null) }
-        viewModelScope.launch {
+        modelScope.launch {
             runCatching { repository.setFollow(user, target) }
                 .onSuccess { followed ->
                     _uiState.update { current ->
@@ -175,7 +184,7 @@ class UserProfileViewModel(
         } ?: return
         if (state.isDeletingThreadId != null || threadId in state.unknownDeletionThreadIds) return
         _uiState.update { it.copy(isDeletingThreadId = threadId, actionError = null) }
-        viewModelScope.launch {
+        modelScope.launch {
             runCatching { repository.deleteOwnThread(target) }
                 .onSuccess {
                     _uiState.update {
@@ -213,7 +222,7 @@ class UserProfileViewModel(
 data class UserRelationshipsUiState(
     val users: List<UserSummary> = emptyList(),
     val totalCount: Int = 0,
-    val isInitialLoading: Boolean = true,
+    val isInitialLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val hasMore: Boolean = true,
@@ -224,30 +233,38 @@ data class UserRelationshipsUiState(
         get() = isInitialLoading || isRefreshing || isLoadingMore
 }
 
-class UserRelationshipsViewModel(
+class UserRelationshipsViewModel internal constructor(
     private val user: UserSummary,
     val kind: UserRelationshipKind,
     private val repository: UserRelationshipRepository,
+    coroutineScope: CoroutineScope?,
 ) : ViewModel() {
+    constructor(
+        user: UserSummary,
+        kind: UserRelationshipKind,
+        repository: UserRelationshipRepository,
+    ) : this(user, kind, repository, coroutineScope = null)
+
     private val _uiState = MutableStateFlow(UserRelationshipsUiState())
     val uiState: StateFlow<UserRelationshipsUiState> = _uiState.asStateFlow()
+    private val modelScope = coroutineScope ?: viewModelScope
     private var requestGeneration = 0
 
     init {
-        refresh(initial = true)
+        refresh()
     }
 
-    fun refresh(initial: Boolean = false) {
+    fun refresh() {
         if (_uiState.value.isBusy) return
         val generation = ++requestGeneration
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isInitialLoading = initial && it.users.isEmpty(),
-                    isRefreshing = !initial || it.users.isNotEmpty(),
-                    errorMessage = null,
-                )
-            }
+        _uiState.update {
+            it.copy(
+                isInitialLoading = it.users.isEmpty(),
+                isRefreshing = it.users.isNotEmpty(),
+                errorMessage = null,
+            )
+        }
+        modelScope.launch {
             load(page = 1, replace = true, generation = generation)
         }
     }
@@ -256,7 +273,7 @@ class UserRelationshipsViewModel(
         val state = _uiState.value
         if (state.isBusy || !state.hasMore) return
         val generation = requestGeneration
-        viewModelScope.launch {
+        modelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
             load(page = state.nextPage, replace = false, generation = generation)
         }
