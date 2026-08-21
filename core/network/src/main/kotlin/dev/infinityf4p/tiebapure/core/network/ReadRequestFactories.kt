@@ -6,6 +6,8 @@ import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.UserRelationshipKind
 import okhttp3.Request
 
+private const val MESSAGE_CLIENT_VERSION = "8.2.2"
+
 object TiebaReadRequestFactory {
     fun followedForums(account: Account, builder: TiebaRequestBuilder): Request = builder.formRequest(
         endpoint = TiebaEndpoint.FollowedForums,
@@ -162,13 +164,23 @@ object TiebaReadRequestFactory {
         val fields = builder.miniCommonFields().toMutableMap().apply {
             remove("subapp_type")
             remove("cuid_galaxy2")
-            put("_client_version", "8.2.2")
+            put("_client_version", MESSAGE_CLIENT_VERSION)
             put("from", "baidu_appstore")
             put("BDUSS", account.bduss)
             put("pn", TiebaRequestValuePolicy.page(page).toString())
             put("stErrorNums", "0")
         }
-        return builder.formRequest(if (mention) TiebaEndpoint.MentionMessages else TiebaEndpoint.ReplyMessages, fields)
+        return builder.formRequest(
+            endpoint = if (mention) TiebaEndpoint.MentionMessages else TiebaEndpoint.ReplyMessages,
+            fields = fields,
+            headers = mapOf(
+                "Cookie" to "ka=open",
+                "Pragma" to "no-cache",
+                "User-Agent" to "bdtb for Android $MESSAGE_CLIENT_VERSION",
+                "cuid" to builder.device.miniCuid,
+            ),
+            signingSecret = TiebaFormSigner.DEFAULT_SECRET,
+        )
     }
 
     @Suppress("UNUSED_PARAMETER")
