@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.infinityf4p.tiebapure.core.model.ReaderFontSize
+import dev.infinityf4p.tiebapure.core.model.ReaderFontFamily
 import dev.infinityf4p.tiebapure.core.model.ReaderLineSpacing
 import dev.infinityf4p.tiebapure.core.model.ReaderMediaLoadingPolicy
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
@@ -44,6 +45,7 @@ class AppSettingsStore(private val context: Context) {
             submissionRiskAcknowledged = preferences[Keys.submissionRiskV2] ?: false,
             reading = ReadingPreferences(
                 fontSize = preferences.enumValue(Keys.readerFontSize, ReaderFontSize.Standard),
+                fontFamily = ReaderFontFamily.fromRaw(preferences[Keys.readerFontFamily]),
                 lineSpacing = preferences.enumValue(Keys.readerLineSpacing, ReaderLineSpacing.Standard),
                 defaultReplySort = preferences.enumValue(Keys.defaultReplySort, ThreadReplySort.Hot),
                 mediaLoading = preferences.enumValue(Keys.mediaLoading, ReaderMediaLoadingPolicy.Automatic),
@@ -60,6 +62,7 @@ class AppSettingsStore(private val context: Context) {
             preferences[Keys.autoSign] = value.autoSignEnabled
             preferences[Keys.submissionRiskV2] = value.submissionRiskAcknowledged
             preferences[Keys.readerFontSize] = value.reading.fontSize.name
+            preferences[Keys.readerFontFamily] = value.reading.fontFamily.rawValue
             preferences[Keys.readerLineSpacing] = value.reading.lineSpacing.name
             preferences[Keys.defaultReplySort] = value.reading.defaultReplySort.name
             preferences[Keys.mediaLoading] = value.reading.mediaLoading.name
@@ -80,6 +83,7 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setReadingPreferences(value: ReadingPreferences) = edit {
         it[Keys.readerFontSize] = value.fontSize.name
+        it[Keys.readerFontFamily] = value.fontFamily.rawValue
         it[Keys.readerLineSpacing] = value.lineSpacing.name
         it[Keys.defaultReplySort] = value.defaultReplySort.name
         it[Keys.mediaLoading] = value.mediaLoading.name
@@ -97,6 +101,7 @@ class AppSettingsStore(private val context: Context) {
         val autoSign = booleanPreferencesKey("auto_sign_enabled")
         val submissionRiskV2 = booleanPreferencesKey("content_submission_risk_acknowledged_v2")
         val readerFontSize = stringPreferencesKey("reader_font_size")
+        val readerFontFamily = stringPreferencesKey("reader_font_family")
         val readerLineSpacing = stringPreferencesKey("reader_line_spacing")
         val defaultReplySort = stringPreferencesKey("reader_default_reply_sort")
         val mediaLoading = stringPreferencesKey("reader_media_loading")

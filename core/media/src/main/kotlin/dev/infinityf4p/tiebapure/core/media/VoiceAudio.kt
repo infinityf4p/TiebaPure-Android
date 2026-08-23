@@ -99,9 +99,12 @@ object VoiceAudioUrlPolicy {
 
 class VoiceFileLease internal constructor(
     val file: File,
-    private val lease: TemporaryMediaFileLease,
+    private val releaseAction: () -> Unit,
 ) : AutoCloseable {
-    fun release() = lease.release()
+    internal constructor(file: File, lease: TemporaryMediaFileLease) : this(file, lease::release)
+    internal constructor(file: File) : this(file, {})
+
+    fun release() = releaseAction()
 
     override fun close() = release()
 }
@@ -125,6 +128,17 @@ class SecureVoiceAudioDownloadClient internal constructor(
             ?: throw MediaDownloadException("Invalid voice identifier")
         val downloaded = downloader.download(url, onProgress)
         return VoiceFileLease(downloaded.lease.file, downloaded.lease)
+    }
+
+    suspend fun download(voice: VoiceContent, onProgress: (Float) -> Unit = {}): VoiceFileLease {
+        voice.localUrl?.let { raw ->
+            OfflineMediaPolicy.resolve(raw)?.let { local ->
+                onProgress(1f)
+                return VoiceFileLease(local)
+            }
+        }
+        if (voice.offlineOnly) throw MediaDownloadException("Offline voice file is unavailable")
+        return download(voice.md5, onProgress)
     }
 
     internal companion object {
@@ -186,13 +200,13 @@ class VoicePlaybackCoordinator private constructor(
     fun toggle(voice: VoiceContent) {
         val current = stateFor(voice.md5)
         if (current.key == null) {
-            beginLoading(voice.md5)
+            beginLoading(voice)
             return
         }
         when (current.phase) {
             VoicePlaybackPhase.Idle,
             VoicePlaybackPhase.Failed,
-            -> beginLoading(voice.md5)
+            -> beginLoading(voice)
             VoicePlaybackPhase.Loading -> Unit
             VoicePlaybackPhase.Playing -> pause()
             VoicePlaybackPhase.Paused -> resume()
@@ -200,7 +214,7 @@ class VoicePlaybackCoordinator private constructor(
         }
     }
 
-    fun retry(voice: VoiceContent) = beginLoading(voice.md5)
+    fun retry(voice: VoiceContent) = beginLoading(voice)
 
     fun stop() {
         generation += 1
@@ -213,8 +227,8 @@ class VoicePlaybackCoordinator private constructor(
         scope.cancel()
     }
 
-    private fun beginLoading(rawMd5: String) {
-        val key = VoiceAudioUrlPolicy.normalizeMd5(rawMd5) ?: run {
+    private fun beginLoading(voice: VoiceContent) {
+        val key = VoiceAudioUrlPolicy.normalizeMd5(voice.md5) ?: run {
             stop()
             mutableState.value = VoicePlaybackState(
                 phase = VoicePlaybackPhase.Failed,
@@ -228,7 +242,7 @@ class VoicePlaybackCoordinator private constructor(
         mutableState.value = VoicePlaybackState(key = key, phase = VoicePlaybackPhase.Loading)
         loadJob = scope.launch {
             try {
-                val downloaded = downloader.download(key) { progress ->
+                val downloaded = downloader.download(voice) { progress ->
                     scope.launch {
                         if (isCurrent(key, requestGeneration)) {
                             mutableState.value = mutableState.value.copy(loadProgress = progress)

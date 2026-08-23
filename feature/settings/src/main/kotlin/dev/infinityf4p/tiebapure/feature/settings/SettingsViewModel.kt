@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntry
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntryKind
 import dev.infinityf4p.tiebapure.core.model.BlocklistPolicy
+import dev.infinityf4p.tiebapure.core.model.ImportedReaderFont
+import dev.infinityf4p.tiebapure.core.model.ReaderFontFamily
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +21,7 @@ import kotlinx.coroutines.launch
 data class SettingsFeatureState(
     val values: SettingsValues = SettingsValues(),
     val blocklist: List<BlocklistEntry> = emptyList(),
+    val readerFonts: List<ImportedReaderFont> = emptyList(),
     val isSaving: Boolean = false,
     val isSigning: Boolean = false,
     val isLoggingOut: Boolean = false,
@@ -35,9 +38,11 @@ class SettingsViewModel(
     val state: StateFlow<SettingsFeatureState> = mutableState.asStateFlow()
 
     init {
-        combine(repository.settings, repository.blocklist) { values, blocklist -> values to blocklist }
-            .onEach { (values, blocklist) ->
-                mutableState.update { it.copy(values = values, blocklist = blocklist) }
+        combine(repository.settings, repository.blocklist, repository.readerFonts) { values, blocklist, fonts ->
+            Triple(values, blocklist, fonts)
+        }
+            .onEach { (values, blocklist, fonts) ->
+                mutableState.update { it.copy(values = values, blocklist = blocklist, readerFonts = fonts) }
             }
             .launchIn(viewModelScope)
     }
@@ -50,6 +55,18 @@ class SettingsViewModel(
     fun acknowledgeSubmissionRisk() = mutate { repository.acknowledgeSubmissionRisk() }
     fun setReadingPreferences(value: ReadingPreferences) = mutate { repository.setReadingPreferences(value) }
     fun resetReadingPreferences() = setReadingPreferences(ReadingPreferences())
+
+    fun importReaderFont(uri: String) = mutate(successMessage = "字体已导入") {
+        repository.importReaderFont(uri)
+    }
+
+    fun removeReaderFont(id: String) = mutate(successMessage = "字体已删除") {
+        repository.removeReaderFont(id)
+        val current = state.value.values.reading
+        if (current.fontFamily.importedId == id) {
+            repository.setReadingPreferences(current.copy(fontFamily = ReaderFontFamily.System))
+        }
+    }
 
     fun addBlocklistEntry(candidate: BlocklistEntry) {
         val normalized = BlocklistPolicy.normalize(candidate)

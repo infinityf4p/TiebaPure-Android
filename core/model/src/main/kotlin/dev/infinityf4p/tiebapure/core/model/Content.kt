@@ -48,14 +48,21 @@ data class VideoContent(
 data class VoiceContent private constructor(
     val md5: String,
     val durationMilliseconds: Int,
+    val localUrl: String? = null,
+    val offlineOnly: Boolean = false,
 ) {
     companion object {
         private val md5Pattern = Regex("^[0-9a-f]{32}$")
 
-        fun create(md5: String, durationMilliseconds: Int): VoiceContent? {
+        fun create(
+            md5: String,
+            durationMilliseconds: Int,
+            localUrl: String? = null,
+            offlineOnly: Boolean = false,
+        ): VoiceContent? {
             val normalized = md5.trim().lowercase()
             if (!md5Pattern.matches(normalized)) return null
-            return VoiceContent(normalized, durationMilliseconds.coerceAtLeast(0))
+            return VoiceContent(normalized, durationMilliseconds.coerceAtLeast(0), localUrl, offlineOnly)
         }
     }
 }

@@ -10,6 +10,7 @@ import dev.infinityf4p.tiebapure.core.data.NetworkAuthenticationRepository
 import dev.infinityf4p.tiebapure.core.data.TiebaPureDatabase
 import dev.infinityf4p.tiebapure.core.data.TiebaRepositories
 import dev.infinityf4p.tiebapure.core.model.Account
+import dev.infinityf4p.tiebapure.core.model.ReaderFontFamily
 import dev.infinityf4p.tiebapure.core.model.UserProfile
 import dev.infinityf4p.tiebapure.core.network.DefaultTiebaAccountService
 import dev.infinityf4p.tiebapure.core.network.DefaultTiebaReadService
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -51,6 +53,7 @@ class AppContainer(context: Context) {
         initialValue = dev.infinityf4p.tiebapure.core.data.AppSettings(),
     )
     val database = TiebaPureDatabase.getInstance(appContext)
+    val readerFonts = AppReaderFontStore(appContext)
 
     private val requestBuilder = TiebaRequestBuilder(deviceProfile(appContext))
     private val transport = TiebaTransport(TiebaHttpClientFactory.create())
@@ -67,10 +70,13 @@ class AppContainer(context: Context) {
         .monitorSessions(sessionExpiration::report)
     val repositories = TiebaRepositories.network(readService)
         .monitorSessions(sessionExpiration::report)
+    val savedThreadMedia = AppSavedThreadMediaStore(appContext)
     val savedThreads = AppSavedThreadRepository(
         database = database,
         repositories = repositories,
         account = { mutableAccount.value },
+        mediaStore = savedThreadMedia,
+        context = appContext,
     )
     val featureRepositories = AppFeatureRepositories(
         repositories = repositories,
@@ -91,7 +97,7 @@ class AppContainer(context: Context) {
         accountRepository = accountRepository,
         mutationRepository = mutationRepository,
     )
-    val settingsRepository = AppSettingsRepository(settings, database)
+    val settingsRepository = AppSettingsRepository(settings, database, readerFonts)
     val settingsAccountActions = AppSettingsAccountActions(
         account = account,
         accountRepository = accountRepository,
@@ -113,7 +119,16 @@ class AppContainer(context: Context) {
         private set
 
     init {
+        applicationScope.launch {
+            readerFonts.load()
+            val persisted = settings.values.first()
+            val selected = persisted.reading.fontFamily
+            if (selected.importedId != null && readerFonts.entries.value.none { it.id == selected.importedId }) {
+                settings.setReadingPreferences(persisted.reading.copy(fontFamily = ReaderFontFamily.System))
+            }
+        }
         applicationScope.launch { composerRepository.repairStorage() }
+        applicationScope.launch { savedThreads.repairStorage() }
         applicationScope.launch {
             combine(account, currentSettings) { activeAccount, activeSettings ->
                 activeAccount?.sessionIdentity() to activeSettings.autoSignEnabled

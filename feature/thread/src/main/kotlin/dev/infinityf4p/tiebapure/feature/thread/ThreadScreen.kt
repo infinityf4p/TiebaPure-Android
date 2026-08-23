@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderCard
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderSectionBand
+import dev.infinityf4p.tiebapure.core.designsystem.readerFontFamily
 import dev.infinityf4p.tiebapure.core.media.AvatarImage
 import dev.infinityf4p.tiebapure.core.media.ImageGallery
 import dev.infinityf4p.tiebapure.core.media.ImageSaveAction
@@ -563,7 +564,13 @@ private fun MainPost(
             isMainPost = true,
         )
         Spacer(Modifier.height(12.dp))
-        Text(page.thread.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            page.thread.title,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontFamily = readerFontFamily(LocalReadingPreferences.current.fontFamily),
+            ),
+            fontWeight = FontWeight.SemiBold,
+        )
         Spacer(Modifier.height(12.dp))
         if (page.mainPostIsSummaryFallback) {
             ReaderSectionBand(Modifier.padding(bottom = 8.dp)) {

@@ -39,6 +39,7 @@ import dev.infinityf4p.tiebapure.core.model.ContentBlock
 import dev.infinityf4p.tiebapure.core.model.ImageContent
 import dev.infinityf4p.tiebapure.core.model.ReaderMediaLoadingPolicy
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
+import dev.infinityf4p.tiebapure.core.designsystem.readerFontFamily
 import dev.infinityf4p.tiebapure.core.model.TiebaEmoticon
 import dev.infinityf4p.tiebapure.core.model.VideoContent
 import dev.infinityf4p.tiebapure.core.model.VoiceContent
@@ -209,7 +210,12 @@ internal fun RichContent(
                     if (richText.annotated.isNotBlank()) {
                         BasicText(
                             text = richText.annotated,
-                            style = baseStyle.copy(color = textColor, fontSize = fontSize, lineHeight = lineHeight),
+                            style = baseStyle.copy(
+                                color = textColor,
+                                fontSize = fontSize,
+                                lineHeight = lineHeight,
+                                fontFamily = readerFontFamily(readingPreferences.fontFamily),
+                            ),
                             inlineContent = richText.emoticons
                                 .filterNot { "$index:${it.tag}" in failedEmoticons }
                                 .associate { emoticon ->
