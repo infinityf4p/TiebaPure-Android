@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.LightMode
@@ -68,7 +69,7 @@ import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import java.net.URI
 
-enum class SettingsDestination { Reading, Blocklist, About }
+enum class SettingsDestination { Reading, SavedThreads, Blocklist, About }
 
 @Immutable
 data class SettingsUiState(
@@ -186,6 +187,9 @@ fun SettingsScreen(
                     SettingsSwitchRow("允许回帖", Icons.AutoMirrored.Outlined.Reply, state.settings.replyingEnabled, onReplyingEnabledChange)
                     SettingsSwitchRow("允许点赞", Icons.Outlined.ThumbUpOffAlt, state.settings.likingEnabled, onLikingEnabledChange)
                     ReaderNavigationRow("阅读设置", icon = Icons.Outlined.FormatSize) { onOpen(SettingsDestination.Reading) }
+                    ReaderNavigationRow("本地保存的帖子", icon = Icons.Outlined.DownloadDone) {
+                        onOpen(SettingsDestination.SavedThreads)
+                    }
                     ReaderNavigationRow("屏蔽设置", icon = Icons.Outlined.Block) { onOpen(SettingsDestination.Blocklist) }
                 }
             }

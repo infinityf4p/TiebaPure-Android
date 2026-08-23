@@ -39,6 +39,41 @@ data class SearchHistoryEntity(
 )
 
 @Entity(
+    tableName = "saved_threads",
+    indices = [Index("saved_at_ms")],
+)
+data class SavedThreadEntity(
+    @PrimaryKey @ColumnInfo(name = "thread_id") val threadId: Long,
+    val title: String,
+    @ColumnInfo(name = "author_name") val authorName: String,
+    @ColumnInfo(name = "forum_name") val forumName: String,
+    @ColumnInfo(name = "saved_at_ms") val savedAtMilliseconds: Long,
+    @ColumnInfo(name = "snapshot_blob", typeAffinity = ColumnInfo.BLOB) val snapshotBlob: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean = other is SavedThreadEntity &&
+        threadId == other.threadId && title == other.title && authorName == other.authorName &&
+        forumName == other.forumName && savedAtMilliseconds == other.savedAtMilliseconds &&
+        snapshotBlob.contentEquals(other.snapshotBlob)
+
+    override fun hashCode(): Int = listOf(
+        threadId,
+        title,
+        authorName,
+        forumName,
+        savedAtMilliseconds,
+        snapshotBlob.contentHashCode(),
+    ).hashCode()
+}
+
+data class SavedThreadMetadata(
+    @ColumnInfo(name = "thread_id") val threadId: Long,
+    val title: String,
+    @ColumnInfo(name = "author_name") val authorName: String,
+    @ColumnInfo(name = "forum_name") val forumName: String,
+    @ColumnInfo(name = "saved_at_ms") val savedAtMilliseconds: Long,
+)
+
+@Entity(
     tableName = "blocklist",
     primaryKeys = ["kind", "identity"],
     indices = [Index("kind")],

@@ -116,6 +116,25 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun localSaveActionUsesDedicatedToolbarControl() {
+        var saveCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                TestThreadScreen(
+                    state = threadState(),
+                    onSave = { saveCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("thread-save-action")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.runOnIdle { assertEquals(1, saveCalls) }
+    }
+
+    @Test
     fun resolvedEmptyReplyListShowsTerminalMessage() {
         composeRule.setContent {
             TiebaPureTheme { TestThreadScreen(state = threadState(posts = emptyList())) }
@@ -221,6 +240,7 @@ private fun TestThreadScreen(
     onLoadMore: () -> Unit = {},
     onRetry: () -> Unit = {},
     onShare: () -> Unit = {},
+    onSave: (() -> Unit)? = null,
 ) {
     ThreadScreen(
         state = state,
@@ -236,6 +256,7 @@ private fun TestThreadScreen(
         onUserClick = {},
         onLinkClick = {},
         onShare = onShare,
+        onSave = onSave,
         onOpenSubposts = {},
         onCloseSubposts = {},
         onLoadMoreSubposts = {},

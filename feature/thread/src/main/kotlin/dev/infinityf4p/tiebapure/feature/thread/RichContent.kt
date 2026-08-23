@@ -45,7 +45,7 @@ import dev.infinityf4p.tiebapure.core.model.VoiceContent
 
 private const val EmoticonTagPrefix = "emoticon-"
 
-internal val LocalReadingPreferences = staticCompositionLocalOf { ReadingPreferences() }
+val LocalReadingPreferences = staticCompositionLocalOf { ReadingPreferences() }
 
 internal enum class RichContentTextStyle { Body, Reply, Subpost }
 
