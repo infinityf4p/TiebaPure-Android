@@ -48,6 +48,33 @@ class TiebaPureDatabaseMigrationTest {
         }
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun migrationFromTwoAddsSavedThreadsWithoutChangingExistingData() {
+        helper.createDatabase(DATABASE_NAME, 2).apply {
+            execSQL(
+                "INSERT INTO browsing_history (thread_id,title,author_name,forum_name,visited_at_ms) VALUES (8,'kept','author','forum',10)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            DATABASE_NAME,
+            3,
+            true,
+            TiebaPureDatabase.MIGRATION_2_3,
+        ).use { database ->
+            database.query("SELECT title FROM browsing_history WHERE thread_id = 8").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("kept", cursor.getString(0))
+            }
+            database.query("SELECT COUNT(*) FROM saved_threads").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+    }
+
     private companion object {
         const val DATABASE_NAME = "draft-migration-test"
     }

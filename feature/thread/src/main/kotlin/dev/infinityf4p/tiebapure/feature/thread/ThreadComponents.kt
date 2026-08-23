@@ -196,6 +196,7 @@ internal fun PostBody(
     isMainPost: Boolean = false,
     threadAuthorId: Long? = null,
     showSubpostPreview: Boolean = true,
+    showSubpostOpenAction: Boolean = false,
 ) {
     val hasPreview = showSubpostPreview && post.previewSubposts.isNotEmpty()
     val placement = threadPostMetadataPlacement(isMainPost, hasPreview)
@@ -227,6 +228,7 @@ internal fun PostBody(
                 threadAuthorId = threadAuthorId,
                 onUserClick = onUserClick,
                 onOpen = { onOpenSubposts(post) },
+                alwaysShowOpenAction = showSubpostOpenAction,
             )
         }
     }
@@ -303,6 +305,7 @@ private fun SubpostPreview(
     threadAuthorId: Long?,
     onUserClick: (Long) -> Unit,
     onOpen: () -> Unit,
+    alwaysShowOpenAction: Boolean,
 ) {
     val visibleSubposts = post.previewSubposts.take(3)
     val readingPreferences = LocalReadingPreferences.current
@@ -366,7 +369,9 @@ private fun SubpostPreview(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (post.subpostCount > visibleSubposts.size) {
+            if (post.subpostCount > visibleSubposts.size ||
+                alwaysShowOpenAction && post.subpostCount > 0
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -195,6 +195,8 @@ private object Routes {
     const val Blocklist = "settings/blocklist"
     const val About = "about"
     const val History = "history"
+    const val SavedThreads = "saved-threads"
+    const val SavedThread = "saved-thread/{threadId}"
     const val Favorites = "favorites"
     const val Messages = "messages"
     const val User = "user/{userId}/{userName}"
@@ -244,6 +246,7 @@ internal fun TiebaPureApp(
     externalNavigationEvent: ExternalNavigationEvent? = null,
     onExternalNavigationConsumed: (Long) -> Unit = {},
 ) {
+    val sessionExpirationNotice by container.sessionExpiration.notice.collectAsStateWithLifecycle()
     val rootNavController = rememberNavController()
     val listPaneNavController = rememberNavController()
     var selectedDestination by rememberSaveable { mutableStateOf(RootDestination.Home) }
@@ -417,6 +420,16 @@ internal fun TiebaPureApp(
             }
         }
     }
+    sessionExpirationNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = container.sessionExpiration::dismissNotice,
+            title = { Text("登录已失效") },
+            text = { Text(notice.message) },
+            confirmButton = {
+                TextButton(onClick = container.sessionExpiration::dismissNotice) { Text("知道了") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -433,6 +446,7 @@ private fun AppNavigationHost(
 ) {
     val context = LocalContext.current
     val account by container.account.collectAsStateWithLifecycle()
+    val savedThreadEntries by container.savedThreads.entries.collectAsStateWithLifecycle(initialValue = emptyList())
     val accountSessionKey = sessionViewModelKey(account)
     val scope = rememberCoroutineScope()
     val versionName = remember(context) { appVersionName(context) }
@@ -722,6 +736,8 @@ private fun AppNavigationHost(
 
             composable(Routes.Thread) { entry ->
                 val threadId = entry.arguments?.getString("threadId")?.toLongOrNull() ?: return@composable
+                var isSavingThread by remember(threadId) { mutableStateOf(false) }
+                val isThreadSaved = savedThreadEntries.any { it.threadId == threadId }
                 val initialPostId = entry.arguments?.getString("postId")?.toULongOrNull()?.takeIf { it > 0uL }
                 val initialDestination = when (entry.arguments?.getString("initialDestination")) {
                     "replies" -> ThreadInitialDestination.Replies
@@ -746,6 +762,21 @@ private fun AppNavigationHost(
                     onUserClick = { navController.navigate(userRoute(UserSummary(it, "", "", ""))) },
                     onLinkClick = { openPublicLink(context, it) },
                     onShare = { sharePublicLink(context, it) },
+                    onSave = {
+                        if (!isSavingThread) {
+                            isSavingThread = true
+                            scope.launch {
+                                runCatching { container.savedThreads.save(threadId) }
+                                    .onSuccess {
+                                        message = "已保存主楼、${it.replyCount}层回复和${it.subpostCount}条楼中楼；媒体仍需联网加载。"
+                                    }
+                                    .onFailure { message = readableMessage(it) }
+                                isSavingThread = false
+                            }
+                        }
+                    },
+                    isSaving = isSavingThread,
+                    isSaved = isThreadSaved,
                     onDownloadImage = requestImageDownload,
                     onSaveImage = saveImageAction,
                     readingPreferences = settings.reading,
@@ -858,6 +889,30 @@ private fun AppNavigationHost(
                 )
             }
 
+            composable(Routes.SavedThreads) {
+                SavedThreadsRoute(
+                    repository = container.savedThreads,
+                    onBack = { navController.popBackStack() },
+                    onOpen = { navController.navigate("saved-thread/$it") },
+                )
+            }
+
+            composable(Routes.SavedThread) { entry ->
+                val threadId = entry.arguments?.getString("threadId")?.toLongOrNull() ?: return@composable
+                SavedThreadDetailRoute(
+                    threadId = threadId,
+                    repository = container.savedThreads,
+                    readingPreferences = settings.reading,
+                    onBack = { navController.popBackStack() },
+                    onForumClick = { navController.navigate(forumRoute(it)) },
+                    onUserClick = { navController.navigate(userRoute(UserSummary(it, "", "", ""))) },
+                    onLinkClick = { openPublicLink(context, it) },
+                    onShare = { sharePublicLink(context, "https://tieba.baidu.com/p/$threadId") },
+                    onDownloadImage = requestImageDownload,
+                    onSaveImage = saveImageAction,
+                )
+            }
+
             composable(Routes.EditProfile) {
                 val pending = container.profilePendingEdit
                 val ownsPendingProfile = account?.uid?.toLongOrNull() == pending?.user?.id
@@ -888,6 +943,7 @@ private fun AppNavigationHost(
                             navController.navigate(
                                 when (destination) {
                                     SettingsDestination.Reading -> Routes.Reading
+                                    SettingsDestination.SavedThreads -> Routes.SavedThreads
                                     SettingsDestination.Blocklist -> Routes.Blocklist
                                     SettingsDestination.About -> Routes.About
                                 },

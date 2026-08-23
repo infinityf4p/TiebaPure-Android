@@ -160,6 +160,36 @@ abstract class SearchHistoryDao {
 }
 
 @Dao
+abstract class SavedThreadDao {
+    @Query("SELECT thread_id, title, author_name, forum_name, saved_at_ms FROM saved_threads ORDER BY saved_at_ms DESC")
+    abstract fun observeAll(): Flow<List<SavedThreadMetadata>>
+
+    @Query("SELECT * FROM saved_threads WHERE thread_id = :threadId LIMIT 1")
+    abstract suspend fun load(threadId: Long): SavedThreadEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    protected abstract suspend fun insert(entity: SavedThreadEntity)
+
+    @Query("DELETE FROM saved_threads WHERE thread_id = :threadId")
+    abstract suspend fun remove(threadId: Long)
+
+    @Query("DELETE FROM saved_threads WHERE thread_id NOT IN (SELECT thread_id FROM saved_threads ORDER BY saved_at_ms DESC LIMIT :limit)")
+    protected abstract suspend fun prune(limit: Int)
+
+    @Transaction
+    open suspend fun upsert(entity: SavedThreadEntity, limit: Int = 100) {
+        require(entity.threadId > 0)
+        require(entity.snapshotBlob.size in 1..MAXIMUM_SNAPSHOT_BYTES)
+        insert(entity)
+        prune(limit.coerceIn(0, 100))
+    }
+
+    private companion object {
+        const val MAXIMUM_SNAPSHOT_BYTES = 1 * 1_024 * 1_024
+    }
+}
+
+@Dao
 abstract class BlocklistDao {
     @Query("SELECT * FROM blocklist ORDER BY created_at_ms DESC")
     abstract fun observeAll(): Flow<List<BlocklistEntity>>

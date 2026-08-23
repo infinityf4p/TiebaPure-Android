@@ -28,6 +28,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -92,6 +94,9 @@ data class ThreadCapabilities(
     val canReply: Boolean = true,
     val canLike: Boolean = true,
     val canCollect: Boolean = true,
+    val canRefresh: Boolean = true,
+    val canFilterReplies: Boolean = true,
+    val alwaysShowSubpostOpenAction: Boolean = false,
 )
 
 private data class GallerySelection(val images: List<ImageContent>, val index: Int)
@@ -108,6 +113,9 @@ fun ThreadRoute(
     onUserClick: (Long) -> Unit,
     onLinkClick: (String) -> Unit,
     onShare: (String) -> Unit,
+    onSave: (() -> Unit)? = null,
+    isSaving: Boolean = false,
+    isSaved: Boolean = false,
     onDownloadImage: (ImageContent) -> Unit,
     onSaveImage: ImageSaveAction? = null,
     readingPreferences: ReadingPreferences = ReadingPreferences(),
@@ -152,6 +160,9 @@ fun ThreadRoute(
             onUserClick = onUserClick,
             onLinkClick = onLinkClick,
             onShare = { onShare(buildThreadShareUrl(threadId)) },
+            onSave = onSave,
+            isSaving = isSaving,
+            isSaved = isSaved,
             onOpenSubposts = viewModel::openSubposts,
             onCloseSubposts = viewModel::closeSubposts,
             onLoadMoreSubposts = viewModel::loadMoreSubposts,
@@ -187,6 +198,9 @@ fun ThreadScreen(
     onUserClick: (Long) -> Unit,
     onLinkClick: (String) -> Unit,
     onShare: () -> Unit,
+    onSave: (() -> Unit)? = null,
+    isSaving: Boolean = false,
+    isSaved: Boolean = false,
     onOpenSubposts: (Post) -> Unit,
     onCloseSubposts: () -> Unit,
     onLoadMoreSubposts: () -> Unit,
@@ -302,14 +316,32 @@ fun ThreadScreen(
                             }
                         }
                     }
+                    onSave?.let { save ->
+                        IconButton(
+                            onClick = save,
+                            enabled = !isSaving,
+                            modifier = Modifier.testTag("thread-save-action"),
+                        ) {
+                            if (isSaving) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    if (isSaved) Icons.Outlined.DownloadDone else Icons.Outlined.Download,
+                                    contentDescription = if (isSaved) "更新本地保存" else "保存到本地",
+                                )
+                            }
+                        }
+                    }
                     IconButton(
                         onClick = onShare,
                         modifier = Modifier.testTag("thread-share-action"),
                     ) {
                         Icon(Icons.Outlined.Share, contentDescription = "分享帖子")
                     }
-                    IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                    if (capabilities.canRefresh) {
+                        IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                        }
                     }
                 },
                 windowInsets = WindowInsets(0, 0, 0, 0),
@@ -377,12 +409,15 @@ fun ThreadScreen(
                             onImagesClick = { images, index -> gallery = GallerySelection(images, index) },
                             onVideoClick = { video = it },
                             onOpenSubposts = onOpenSubposts,
+                            alwaysShowSubpostOpenAction = capabilities.alwaysShowSubpostOpenAction,
                             onToggleLike = onToggleThreadLike,
                             capabilities = capabilities,
                         )
                     }
-                    item(key = "filters") {
-                        ReplyFilters(state.sort, state.onlyThreadAuthor, onSort, onOnlyAuthor)
+                    if (capabilities.canFilterReplies) {
+                        item(key = "filters") {
+                            ReplyFilters(state.sort, state.onlyThreadAuthor, onSort, onOnlyAuthor)
+                        }
                     }
                     items(items = state.posts, key = { "post-${it.id}" }) { post ->
                         val metadataPlacement = threadPostMetadataPlacement(
@@ -423,6 +458,7 @@ fun ThreadScreen(
                                 onImagesClick = { images, index -> gallery = GallerySelection(images, index) },
                                 onVideoClick = { video = it },
                                 onOpenSubposts = onOpenSubposts,
+                                showSubpostOpenAction = capabilities.alwaysShowSubpostOpenAction,
                                 modifier = Modifier.padding(start = 48.dp),
                                 threadAuthorId = state.page.thread.author.id,
                             )
@@ -498,6 +534,7 @@ private fun MainPost(
     onImagesClick: (List<ImageContent>, Int) -> Unit,
     onVideoClick: (VideoContent) -> Unit,
     onOpenSubposts: (Post) -> Unit,
+    alwaysShowSubpostOpenAction: Boolean,
     onToggleLike: () -> Unit,
     capabilities: ThreadCapabilities,
 ) {
@@ -562,6 +599,7 @@ private fun MainPost(
                 onImagesClick = onImagesClick,
                 onVideoClick = onVideoClick,
                 onOpenSubposts = onOpenSubposts,
+                showSubpostOpenAction = alwaysShowSubpostOpenAction,
                 isMainPost = true,
                 threadAuthorId = page.thread.author.id,
             )

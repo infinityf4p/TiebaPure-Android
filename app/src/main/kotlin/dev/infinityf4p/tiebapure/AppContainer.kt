@@ -37,6 +37,11 @@ class AppContainer(context: Context) {
     private val credentialVault = AccountCredentialVault(appContext)
     private val mutableAccount = MutableStateFlow(credentialVault.load())
 
+    val sessionExpiration = SessionExpirationCoordinator(
+        currentAccount = { mutableAccount.value },
+        logOut = ::logOut,
+    )
+
     val account: StateFlow<Account?> = mutableAccount.asStateFlow()
     val settings = AppSettingsStore(appContext)
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -57,8 +62,16 @@ class AppContainer(context: Context) {
     private val writeService = DefaultTiebaWriteService(transport, accountService, requestBuilder)
     val authenticationRepository = NetworkAuthenticationRepository(accountService)
     val accountRepository = NetworkAccountRepository(accountService)
+        .monitorSessions(sessionExpiration::report)
     val mutationRepository = NetworkAccountMutationRepository(writeService)
+        .monitorSessions(sessionExpiration::report)
     val repositories = TiebaRepositories.network(readService)
+        .monitorSessions(sessionExpiration::report)
+    val savedThreads = AppSavedThreadRepository(
+        database = database,
+        repositories = repositories,
+        account = { mutableAccount.value },
+    )
     val featureRepositories = AppFeatureRepositories(
         repositories = repositories,
         database = database,
@@ -135,8 +148,14 @@ class AppContainer(context: Context) {
     }
 
     suspend fun logOut() {
-        mutableAccount.value?.let { mutationRepository.invalidateAndDrain(it) }
-        clearStoredAccount()
+        val current = mutableAccount.value
+        try {
+            current?.let { mutationRepository.invalidateAndDrain(it) }
+        } finally {
+            if (current == null || mutableAccount.value?.sessionIdentity() == current.sessionIdentity()) {
+                clearStoredAccount()
+            }
+        }
     }
 
     private fun clearStoredAccount() {

@@ -14,9 +14,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ContentDraftEntity::class,
         ReadingPositionEntity::class,
         RecentForumEntity::class,
+        SavedThreadEntity::class,
         SearchHistoryEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class TiebaPureDatabase : RoomDatabase() {
@@ -25,6 +26,7 @@ abstract class TiebaPureDatabase : RoomDatabase() {
     abstract fun contentDraftDao(): ContentDraftDao
     abstract fun readingPositionDao(): ReadingPositionDao
     abstract fun recentForumDao(): RecentForumDao
+    abstract fun savedThreadDao(): SavedThreadDao
     abstract fun searchHistoryDao(): SearchHistoryDao
 
     companion object {
@@ -36,7 +38,7 @@ abstract class TiebaPureDatabase : RoomDatabase() {
                 context.applicationContext,
                 TiebaPureDatabase::class.java,
                 "tiebapure.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
 
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
@@ -50,6 +52,17 @@ abstract class TiebaPureDatabase : RoomDatabase() {
                 )
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_content_drafts_updated_at_ms` ON `content_drafts` (`updated_at_ms`)",
+                )
+            }
+        }
+
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `saved_threads` (`thread_id` INTEGER NOT NULL, `title` TEXT NOT NULL, `author_name` TEXT NOT NULL, `forum_name` TEXT NOT NULL, `saved_at_ms` INTEGER NOT NULL, `snapshot_blob` BLOB NOT NULL, PRIMARY KEY(`thread_id`))""",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_saved_threads_saved_at_ms` ON `saved_threads` (`saved_at_ms`)",
                 )
             }
         }
