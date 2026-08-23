@@ -57,6 +57,37 @@ class SavedThreadBlobCodecTest {
         assertEquals(3, decoded.newReplyCount)
     }
 
+    @Test
+    fun duplicateFloorsAndCrossPostSubpostsAreRejected() {
+        val original = snapshot()
+        val reply = original.posts.last()
+        val duplicateFloor = original.copy(
+            posts = original.posts + reply.copy(post = reply.post.copy(id = 99uL)),
+        )
+        assertThrows(IllegalStateException::class.java) { duplicateFloor.validated() }
+
+        val nested = reply.subposts.first()
+        val duplicateSubpost = original.copy(
+            posts = listOf(
+                original.posts.first().copy(subposts = listOf(nested)),
+                reply,
+            ),
+        )
+        assertThrows(IllegalStateException::class.java) { duplicateSubpost.validated() }
+    }
+
+    @Test
+    fun multipleMainPostsAreRejected() {
+        val original = snapshot()
+        val secondMain = original.posts.last().let { saved ->
+            saved.copy(post = saved.post.copy(id = 99uL, floor = 1))
+        }
+
+        assertThrows(IllegalStateException::class.java) {
+            original.copy(posts = original.posts + secondMain).validated()
+        }
+    }
+
     private fun snapshot(): SavedThreadSnapshot {
         val author = UserSummary(1, "author", "作者", "portrait", 12, "十二级", "北京")
         val voice = checkNotNull(VoiceContent.create("0123456789abcdef0123456789abcdef", 1_200))

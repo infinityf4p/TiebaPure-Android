@@ -40,19 +40,27 @@ class AppReaderFontStore(private val context: Context) {
             root.listFiles().orEmpty()
                 .filter { it.name.startsWith(".staging-") }
                 .forEach(File::delete)
+            var catalogNeedsRewrite = catalog.exists().not()
             val decoded = if (catalog.exists()) {
-                runCatching { readCatalog() }.getOrElse { discoverStoredFonts() }
+                runCatching { readCatalog() }.getOrElse {
+                    catalogNeedsRewrite = true
+                    discoverStoredFonts()
+                }
             } else {
                 discoverStoredFonts()
             }
             val valid = decoded.distinctBy(ImportedReaderFont::id)
                 .take(MAXIMUM_FONTS)
                 .mapNotNull(::validateStoredFont)
+            val validIDs = valid.map(ImportedReaderFont::id).toSet()
+            mutableEntries.value.filter { it.id !in validIDs }.forEach {
+                ReaderTypefaceRegistry.unregister(it.id)
+            }
             valid.forEach { entry ->
                 val file = File(root, "${entry.id}.${entry.fileExtension}")
                 ReaderTypefaceRegistry.register(entry.id, Typeface.createFromFile(file))
             }
-            if (valid != decoded) runCatching { writeCatalog(valid) }
+            if (catalogNeedsRewrite || valid != decoded) runCatching { writeCatalog(valid) }
             val referenced = valid.map { "${it.id}.${it.fileExtension}" }.toSet()
             root.listFiles().orEmpty()
                 .filter { it.isFile && it != catalog && !it.name.startsWith(".") && it.name !in referenced }

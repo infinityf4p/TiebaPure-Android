@@ -161,11 +161,23 @@ abstract class SearchHistoryDao {
 
 @Dao
 abstract class SavedThreadDao {
-    @Query("SELECT thread_id, title, author_name, forum_name, saved_at_ms, snapshot_blob FROM saved_threads ORDER BY saved_at_ms DESC")
+    @Query("SELECT thread_id, title, author_name, forum_name, saved_at_ms, media_mode, media_byte_count, new_reply_count, last_checked_at_ms, length(snapshot_blob) AS snapshot_byte_count FROM saved_threads ORDER BY saved_at_ms DESC")
     abstract fun observeAll(): Flow<List<SavedThreadMetadata>>
+
+    @Query("SELECT thread_id FROM saved_threads")
+    abstract suspend fun threadIds(): List<Long>
+
+    @Query("SELECT thread_id FROM saved_threads WHERE media_mode = :mediaMode")
+    abstract suspend fun threadIdsWithMediaMode(mediaMode: String): List<Long>
 
     @Query("SELECT * FROM saved_threads ORDER BY saved_at_ms DESC")
     abstract suspend fun loadAll(): List<SavedThreadEntity>
+
+    @Query("SELECT * FROM saved_threads WHERE thread_id IN (:threadIds)")
+    abstract suspend fun load(threadIds: Collection<Long>): List<SavedThreadEntity>
+
+    @Query("SELECT * FROM saved_threads WHERE metadata_version < :currentVersion")
+    abstract suspend fun loadNeedingMetadataRepair(currentVersion: Int): List<SavedThreadEntity>
 
     @Query("SELECT * FROM saved_threads WHERE thread_id = :threadId LIMIT 1")
     abstract suspend fun load(threadId: Long): SavedThreadEntity?
@@ -182,12 +194,47 @@ abstract class SavedThreadDao {
     @Query("DELETE FROM saved_threads WHERE thread_id NOT IN (SELECT thread_id FROM saved_threads ORDER BY saved_at_ms DESC LIMIT :limit)")
     protected abstract suspend fun prune(limit: Int)
 
+    @Query("UPDATE saved_threads SET media_mode = :mediaMode, media_byte_count = :mediaByteCount, new_reply_count = :newReplyCount, last_checked_at_ms = :lastCheckedAtMilliseconds, metadata_version = :metadataVersion WHERE thread_id = :threadId")
+    protected abstract suspend fun updateMetadata(
+        threadId: Long,
+        mediaMode: String,
+        mediaByteCount: Long,
+        newReplyCount: Int,
+        lastCheckedAtMilliseconds: Long?,
+        metadataVersion: Int,
+    )
+
     @Transaction
     open suspend fun upsert(entity: SavedThreadEntity, limit: Int = 100) {
         require(entity.threadId > 0)
         require(entity.snapshotBlob.size in 1..MAXIMUM_SNAPSHOT_BYTES)
         insert(entity)
         prune(limit.coerceIn(0, 100))
+    }
+
+    @Transaction
+    open suspend fun upsertAll(entities: List<SavedThreadEntity>, limit: Int = 100) {
+        require(entities.size <= 100)
+        require(entities.map(SavedThreadEntity::threadId).distinct().size == entities.size)
+        entities.forEach {
+            require(it.threadId > 0 && it.snapshotBlob.size in 1..MAXIMUM_SNAPSHOT_BYTES)
+            insert(it)
+        }
+        prune(limit.coerceIn(0, 100))
+    }
+
+    @Transaction
+    open suspend fun refreshMetadata(entities: List<SavedThreadEntity>) {
+        entities.forEach { entity ->
+            updateMetadata(
+                threadId = entity.threadId,
+                mediaMode = entity.mediaMode,
+                mediaByteCount = entity.mediaByteCount,
+                newReplyCount = entity.newReplyCount,
+                lastCheckedAtMilliseconds = entity.lastCheckedAtMilliseconds,
+                metadataVersion = entity.metadataVersion,
+            )
+        }
     }
 
     @Transaction

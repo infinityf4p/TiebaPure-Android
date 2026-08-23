@@ -122,9 +122,15 @@ internal class AppSavedThreadBackupService(
                     }
                 }.sortedByDescending { it.item.savedAtMilliseconds }.take(MAXIMUM_THREADS)
 
-                val prepared = selected.map { value ->
-                    val mediaDirectory = File(temporaryRoot, "Media/${value.item.threadId}").apply { mkdirs() }
-                    mediaStore.prepareImported(value.snapshot, mediaDirectory)
+                val prepared = mutableListOf<PreparedSavedThreadMedia>()
+                try {
+                    selected.forEach { value ->
+                        val mediaDirectory = File(temporaryRoot, "Media/${value.item.threadId}").apply { mkdirs() }
+                        prepared += mediaStore.prepareImported(value.snapshot, mediaDirectory)
+                    }
+                } catch (error: Throwable) {
+                    prepared.asReversed().forEach { runCatching { it.transaction.rollback() } }
+                    throw error
                 }
                 val transactions = prepared.map(PreparedSavedThreadMedia::transaction)
                 try {
@@ -141,7 +147,13 @@ internal class AppSavedThreadBackupService(
                     runCatching { SavedThreadBlobCodec.decode(entity.snapshotBlob).validated() }
                         .getOrNull()?.let { entity.threadId to it }
                 }.toMap()
-                mediaStore.repair(stored.map(SavedThreadEntity::threadId).toSet(), snapshots)
+                mediaStore.repair(
+                    validThreadIds = stored.map(SavedThreadEntity::threadId).toSet(),
+                    snapshots = snapshots,
+                    textOnlyThreadIds = snapshots
+                        .filterValues { it.mediaMode == SavedThreadMediaMode.TextOnly }
+                        .keys,
+                )
                 SavedThreadBackupImportResult(
                     importedThreads = selected.size,
                     skippedThreads = imported.size - selected.size,
@@ -272,4 +284,9 @@ private fun SavedThreadSnapshot.toBackupEntity(blob: ByteArray) = SavedThreadEnt
     forumName = forum.displayName.ifBlank { forum.name },
     savedAtMilliseconds = savedAtMilliseconds,
     snapshotBlob = blob,
+    mediaMode = mediaMode.name,
+    mediaByteCount = mediaAssets.sumOf(SavedThreadMediaAsset::byteCount),
+    newReplyCount = newReplyCount,
+    lastCheckedAtMilliseconds = lastCheckedAtMilliseconds,
+    metadataVersion = 1,
 )

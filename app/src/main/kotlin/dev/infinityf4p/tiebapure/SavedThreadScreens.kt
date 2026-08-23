@@ -84,7 +84,9 @@ fun SavedThreadsRoute(
     var query by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    var storageBytes by remember { mutableStateOf(0L) }
+    val storageBytes = remember(entries) {
+        entries.sumOf { it.mediaBytes + it.snapshotBytes }
+    }
     var isWorking by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingImportUri by remember { mutableStateOf<String?>(null) }
@@ -107,9 +109,6 @@ fun SavedThreadsRoute(
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> pendingImportUri = uri?.toString() }
-    LaunchedEffect(entries) {
-        storageBytes = runCatching { repository.storageBytes() }.getOrDefault(0L)
-    }
     val visible = remember(entries, query) {
         val keyword = query.trim()
         if (keyword.isEmpty()) entries else entries.filter {

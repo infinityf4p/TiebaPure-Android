@@ -5,7 +5,9 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.IOException
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -71,6 +73,36 @@ class TiebaPureDatabaseMigrationTest {
             database.query("SELECT COUNT(*) FROM saved_threads").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(0, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrationFromThreePreservesSnapshotsAndMarksMetadataForRepair() {
+        helper.createDatabase(DATABASE_NAME, 3).apply {
+            execSQL(
+                "INSERT INTO saved_threads (thread_id,title,author_name,forum_name,saved_at_ms,snapshot_blob) VALUES (9,'saved','author','forum',11,X'0102')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            DATABASE_NAME,
+            4,
+            true,
+            TiebaPureDatabase.MIGRATION_3_4,
+        ).use { database ->
+            database.query(
+                "SELECT snapshot_blob,media_mode,media_byte_count,new_reply_count,last_checked_at_ms,metadata_version FROM saved_threads WHERE thread_id = 9",
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertArrayEquals(byteArrayOf(1, 2), cursor.getBlob(0))
+                assertEquals("TextOnly", cursor.getString(1))
+                assertEquals(0L, cursor.getLong(2))
+                assertEquals(0, cursor.getInt(3))
+                assertTrue(cursor.isNull(4))
+                assertEquals(0, cursor.getInt(5))
             }
         }
     }
