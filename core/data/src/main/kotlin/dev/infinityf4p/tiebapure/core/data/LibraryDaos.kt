@@ -161,8 +161,11 @@ abstract class SearchHistoryDao {
 
 @Dao
 abstract class SavedThreadDao {
-    @Query("SELECT thread_id, title, author_name, forum_name, saved_at_ms FROM saved_threads ORDER BY saved_at_ms DESC")
+    @Query("SELECT thread_id, title, author_name, forum_name, saved_at_ms, snapshot_blob FROM saved_threads ORDER BY saved_at_ms DESC")
     abstract fun observeAll(): Flow<List<SavedThreadMetadata>>
+
+    @Query("SELECT * FROM saved_threads ORDER BY saved_at_ms DESC")
+    abstract suspend fun loadAll(): List<SavedThreadEntity>
 
     @Query("SELECT * FROM saved_threads WHERE thread_id = :threadId LIMIT 1")
     abstract suspend fun load(threadId: Long): SavedThreadEntity?
@@ -172,6 +175,9 @@ abstract class SavedThreadDao {
 
     @Query("DELETE FROM saved_threads WHERE thread_id = :threadId")
     abstract suspend fun remove(threadId: Long)
+
+    @Query("DELETE FROM saved_threads")
+    abstract suspend fun clear()
 
     @Query("DELETE FROM saved_threads WHERE thread_id NOT IN (SELECT thread_id FROM saved_threads ORDER BY saved_at_ms DESC LIMIT :limit)")
     protected abstract suspend fun prune(limit: Int)
@@ -184,8 +190,20 @@ abstract class SavedThreadDao {
         prune(limit.coerceIn(0, 100))
     }
 
+    @Transaction
+    open suspend fun importEntries(entities: List<SavedThreadEntity>, replace: Boolean) {
+        require(entities.size <= 100)
+        require(entities.map(SavedThreadEntity::threadId).distinct().size == entities.size)
+        entities.forEach {
+            require(it.threadId > 0 && it.snapshotBlob.size in 1..MAXIMUM_SNAPSHOT_BYTES)
+        }
+        if (replace) clear()
+        entities.forEach { insert(it) }
+        prune(100)
+    }
+
     private companion object {
-        const val MAXIMUM_SNAPSHOT_BYTES = 1 * 1_024 * 1_024
+        const val MAXIMUM_SNAPSHOT_BYTES = 16 * 1_024 * 1_024
     }
 }
 

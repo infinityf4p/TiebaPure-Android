@@ -59,6 +59,7 @@ import kotlinx.coroutines.launch
 class AppSettingsRepository(
     private val settingsStore: AppSettingsStore,
     database: TiebaPureDatabase,
+    private val readerFontStore: AppReaderFontStore,
     private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) : SettingsRepository {
     private val blocklistDao = database.blocklistDao()
@@ -82,6 +83,8 @@ class AppSettingsRepository(
         }
     }
 
+    override val readerFonts = readerFontStore.entries
+
     override suspend fun setAppearance(value: SettingsAppearance) =
         settingsStore.setAppearance(value.toAppAppearance())
 
@@ -97,6 +100,14 @@ class AppSettingsRepository(
 
     override suspend fun setReadingPreferences(value: ReadingPreferences) =
         settingsStore.setReadingPreferences(value)
+
+    override suspend fun importReaderFont(uri: String) {
+        readerFontStore.import(uri)
+    }
+
+    override suspend fun removeReaderFont(id: String) {
+        readerFontStore.remove(id)
+    }
 
     override suspend fun addBlocklistEntry(value: BlocklistEntry) {
         val normalized = requireNotNull(BlocklistPolicy.normalize(value)) { "屏蔽内容不能为空。" }

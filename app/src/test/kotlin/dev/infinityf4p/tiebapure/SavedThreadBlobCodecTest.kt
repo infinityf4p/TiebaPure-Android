@@ -35,6 +35,28 @@ class SavedThreadBlobCodecTest {
         }
     }
 
+    @Test
+    fun mediaAndUpdateMetadataRoundTrip() {
+        val asset = SavedThreadMediaAsset(
+            sourceKey = "https://tiebapic.baidu.com/example.jpg",
+            kind = SavedThreadMediaKind.Image,
+            fileName = "image-abc.img",
+            byteCount = 42,
+            sha256 = "a".repeat(64),
+        )
+        val snapshot = snapshot().copy(
+            mediaMode = SavedThreadMediaMode.Images,
+            mediaAssets = listOf(asset),
+            lastCheckedAtMilliseconds = 1_900_000_000_000,
+            latestReplyCount = 4,
+        )
+
+        val decoded = SavedThreadBlobCodec.decode(SavedThreadBlobCodec.encode(snapshot)).validated()
+
+        assertEquals(snapshot, decoded)
+        assertEquals(3, decoded.newReplyCount)
+    }
+
     private fun snapshot(): SavedThreadSnapshot {
         val author = UserSummary(1, "author", "作者", "portrait", 12, "十二级", "北京")
         val voice = checkNotNull(VoiceContent.create("0123456789abcdef0123456789abcdef", 1_200))

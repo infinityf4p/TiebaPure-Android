@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -79,11 +80,13 @@ import androidx.core.view.WindowCompat
 import dev.infinityf4p.tiebapure.core.data.AppAppearance
 import dev.infinityf4p.tiebapure.core.data.AppSettings
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderState
+import dev.infinityf4p.tiebapure.core.designsystem.LocalReaderFontRevision
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderStatePane
 import dev.infinityf4p.tiebapure.core.designsystem.TiebaPureTheme
 import dev.infinityf4p.tiebapure.core.designsystem.ThreadMediaPreviewAction
 import dev.infinityf4p.tiebapure.core.designsystem.resolveThreadMediaPreviewAction
 import dev.infinityf4p.tiebapure.core.media.MediaUrlPolicy
+import dev.infinityf4p.tiebapure.core.media.OfflineMediaPolicy
 import dev.infinityf4p.tiebapure.core.media.ImageSaveAction
 import dev.infinityf4p.tiebapure.core.media.SecureImageDownloadClient
 import dev.infinityf4p.tiebapure.core.media.ThreadMediaPreviewDialog
@@ -214,6 +217,7 @@ internal fun TiebaPureRoot(
     val context = LocalContext.current
     val container = (context.applicationContext as TiebaPureApplication).container
     val settings by container.currentSettings.collectAsStateWithLifecycle()
+    val readerFontRevision by container.readerFonts.revision.collectAsStateWithLifecycle()
     val darkTheme = when (settings.appearance) {
         AppAppearance.System -> androidx.compose.foundation.isSystemInDarkTheme()
         AppAppearance.Light -> false
@@ -230,12 +234,14 @@ internal fun TiebaPureRoot(
         }
     }
     TiebaPureTheme(darkTheme = darkTheme) {
-        TiebaPureApp(
-            container = container,
-            settings = settings,
-            externalNavigationEvent = externalNavigationEvent,
-            onExternalNavigationConsumed = onExternalNavigationConsumed,
-        )
+        CompositionLocalProvider(LocalReaderFontRevision provides readerFontRevision) {
+            TiebaPureApp(
+                container = container,
+                settings = settings,
+                externalNavigationEvent = externalNavigationEvent,
+                onExternalNavigationConsumed = onExternalNavigationConsumed,
+            )
+        }
     }
 }
 
@@ -737,6 +743,7 @@ private fun AppNavigationHost(
             composable(Routes.Thread) { entry ->
                 val threadId = entry.arguments?.getString("threadId")?.toLongOrNull() ?: return@composable
                 var isSavingThread by remember(threadId) { mutableStateOf(false) }
+                var showsSaveMode by remember(threadId) { mutableStateOf(false) }
                 val isThreadSaved = savedThreadEntries.any { it.threadId == threadId }
                 val initialPostId = entry.arguments?.getString("postId")?.toULongOrNull()?.takeIf { it > 0uL }
                 val initialDestination = when (entry.arguments?.getString("initialDestination")) {
@@ -763,17 +770,7 @@ private fun AppNavigationHost(
                     onLinkClick = { openPublicLink(context, it) },
                     onShare = { sharePublicLink(context, it) },
                     onSave = {
-                        if (!isSavingThread) {
-                            isSavingThread = true
-                            scope.launch {
-                                runCatching { container.savedThreads.save(threadId) }
-                                    .onSuccess {
-                                        message = "已保存主楼、${it.replyCount}层回复和${it.subpostCount}条楼中楼；媒体仍需联网加载。"
-                                    }
-                                    .onFailure { message = readableMessage(it) }
-                                isSavingThread = false
-                            }
-                        }
+                        if (!isSavingThread) showsSaveMode = true
                     },
                     isSaving = isSavingThread,
                     isSaved = isThreadSaved,
@@ -781,6 +778,23 @@ private fun AppNavigationHost(
                     onSaveImage = saveImageAction,
                     readingPreferences = settings.reading,
                 )
+                if (showsSaveMode) {
+                    SavedThreadSaveModeDialog(
+                        onDismiss = { showsSaveMode = false },
+                        onSelect = { mode ->
+                            showsSaveMode = false
+                            isSavingThread = true
+                            scope.launch {
+                                runCatching { container.savedThreads.save(threadId, mode) }
+                                    .onSuccess {
+                                        message = "已保存主楼、${it.replyCount} 层回复和 ${it.subpostCount} 条楼中楼（${savedThreadMediaModeLabel(it.mediaMode)}）。"
+                                    }
+                                    .onFailure { message = readableMessage(it) }
+                                isSavingThread = false
+                            }
+                        },
+                    )
+                }
             }
 
             composable(Routes.Login) {
@@ -1263,7 +1277,7 @@ private suspend fun saveImageToMediaStore(
     onProgress: (Float) -> Unit = {},
 ) = withContext(Dispatchers.IO) {
     val url = image.originalUrl ?: image.thumbnailUrl ?: error("图片地址不可用。")
-    require(MediaUrlPolicy.isAllowed(url)) { "图片地址不受信任。" }
+    require(MediaUrlPolicy.isAllowed(url) || OfflineMediaPolicy.resolve(url) != null) { "图片地址不受信任。" }
     onProgress(0f)
     downloader.download(url) { progress ->
         onProgress(progress.coerceIn(0f, 1f) * 0.9f)

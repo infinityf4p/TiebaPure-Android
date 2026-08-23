@@ -30,6 +30,11 @@ class OriginalImageLoader internal constructor(
         url: String,
         onProgress: (Float) -> Unit = {},
     ): File = withContext(Dispatchers.IO) {
+        OfflineMediaPolicy.resolve(url)?.let { local ->
+            require(MediaFileSignatures.isSupportedImage(local)) { "Unsupported local image" }
+            onProgress(1f)
+            return@withContext local
+        }
         require(MediaUrlPolicy.isAllowed(url)) { "Unsupported media URL" }
         val destination = File(cacheDirectory, url.sha256())
         if (destination.isFile &&
@@ -101,6 +106,20 @@ class SecureImageDownloadClient internal constructor(
         url: String,
         onProgress: (Float) -> Unit = {},
     ): DownloadedImageLease {
+        OfflineMediaPolicy.resolve(url)?.let { local ->
+            val mimeType = MediaFileSignatures.imageMimeTypes.firstOrNull {
+                MediaFileSignatures.matches(local, it, RemoteMediaKind.Image)
+            } ?: throw IllegalArgumentException("Unsupported local image")
+            val temporary = File.createTempFile("TiebaPure-", ".image", directory.apply { mkdirs() })
+            local.copyTo(temporary, overwrite = true)
+            onProgress(1f)
+            return DownloadedImageLease(
+                file = temporary,
+                mimeType = mimeType,
+                byteCount = temporary.length(),
+                lease = TemporaryMediaFileLease(temporary),
+            )
+        }
         val downloaded = downloader.download(url, onProgress)
         return DownloadedImageLease(
             file = downloaded.lease.file,

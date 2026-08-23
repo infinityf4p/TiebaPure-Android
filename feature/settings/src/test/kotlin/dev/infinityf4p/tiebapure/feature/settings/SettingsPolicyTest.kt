@@ -77,6 +77,7 @@ class SettingsPolicyTest {
 private class FixtureSettingsRepository : SettingsRepository {
     override val settings = MutableStateFlow(SettingsValues())
     override val blocklist = MutableStateFlow<List<BlocklistEntry>>(emptyList())
+    override val readerFonts = MutableStateFlow<List<dev.infinityf4p.tiebapure.core.model.ImportedReaderFont>>(emptyList())
 
     override suspend fun setAppearance(value: SettingsAppearance) { settings.value = settings.value.copy(appearance = value) }
     override suspend fun setPostingEnabled(value: Boolean) { settings.value = settings.value.copy(postingEnabled = value) }
@@ -85,6 +86,8 @@ private class FixtureSettingsRepository : SettingsRepository {
     override suspend fun setAutomaticSignEnabled(value: Boolean) { settings.value = settings.value.copy(automaticSignEnabled = value) }
     override suspend fun acknowledgeSubmissionRisk() { settings.value = settings.value.copy(submissionRiskAcknowledged = true) }
     override suspend fun setReadingPreferences(value: ReadingPreferences) { settings.value = settings.value.copy(reading = value) }
+    override suspend fun importReaderFont(uri: String) = Unit
+    override suspend fun removeReaderFont(id: String) = Unit
     override suspend fun addBlocklistEntry(value: BlocklistEntry) { blocklist.value += value }
     override suspend fun removeBlocklistEntry(value: BlocklistEntry) { blocklist.value -= value }
     override suspend fun clearBlocklist(kind: BlocklistEntryKind) { blocklist.value = blocklist.value.filterNot { it.kind == kind } }

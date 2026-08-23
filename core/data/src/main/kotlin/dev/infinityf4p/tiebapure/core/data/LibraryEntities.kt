@@ -71,6 +71,7 @@ data class SavedThreadMetadata(
     @ColumnInfo(name = "author_name") val authorName: String,
     @ColumnInfo(name = "forum_name") val forumName: String,
     @ColumnInfo(name = "saved_at_ms") val savedAtMilliseconds: Long,
+    @ColumnInfo(name = "snapshot_blob", typeAffinity = ColumnInfo.BLOB) val snapshotBlob: ByteArray,
 )
 
 @Entity(

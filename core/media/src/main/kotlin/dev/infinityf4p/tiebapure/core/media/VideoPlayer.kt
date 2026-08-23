@@ -108,9 +108,12 @@ internal fun shouldPauseVideoForLifecycleEvent(event: Lifecycle.Event): Boolean 
 
 class VideoFileLease internal constructor(
     val file: File,
-    private val lease: TemporaryMediaFileLease,
+    private val releaseAction: () -> Unit,
 ) : AutoCloseable {
-    fun release() = lease.release()
+    internal constructor(file: File, lease: TemporaryMediaFileLease) : this(file, lease::release)
+    internal constructor(file: File) : this(file, {})
+
+    fun release() = releaseAction()
 
     override fun close() = release()
 }
@@ -135,6 +138,13 @@ class SecureVideoDownloadClient internal constructor(
     }
 
     suspend fun download(url: String, onProgress: (Float) -> Unit = {}): VideoFileLease {
+        OfflineMediaPolicy.resolve(url)?.let { local ->
+            check(MediaFileSignatures.matches(local, "video/mp4", RemoteMediaKind.Video)) {
+                "Unsupported local video"
+            }
+            onProgress(1f)
+            return VideoFileLease(local)
+        }
         val downloaded = downloader.download(url, onProgress)
         return VideoFileLease(downloaded.lease.file, downloaded.lease)
     }
@@ -149,8 +159,10 @@ fun VideoPlayer(
     video: VideoContent,
     onDismiss: () -> Unit,
 ) {
-    val videoUrl = video.videoUrl?.takeIf(MediaUrlPolicy::isAllowedDownloadableVideo)
-    val coverUrl = video.coverUrl?.takeIf(MediaUrlPolicy::isAllowed)
+    val videoUrl = video.videoUrl?.takeIf {
+        MediaUrlPolicy.isAllowedDownloadableVideo(it) || OfflineMediaPolicy.resolve(it) != null
+    }
+    val coverUrl = video.coverUrl?.takeIf { MediaUrlPolicy.isAllowed(it) || OfflineMediaPolicy.resolve(it) != null }
     val webUrl = video.webUrl?.takeIf(MediaUrlPolicy::isAllowed)
     val context = LocalContext.current.applicationContext
     val downloader = remember { SecureVideoDownloadClient(context) }

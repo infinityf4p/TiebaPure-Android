@@ -1,5 +1,7 @@
 package dev.infinityf4p.tiebapure.feature.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.FontDownload
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Link
@@ -57,11 +60,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderNavigationRow
 import dev.infinityf4p.tiebapure.core.designsystem.ReaderSectionHeader
+import dev.infinityf4p.tiebapure.core.designsystem.readerFontFamily
 import dev.infinityf4p.tiebapure.core.media.AvatarImage
 import dev.infinityf4p.tiebapure.core.model.Account
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntry
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntryKind
 import dev.infinityf4p.tiebapure.core.model.BlocklistPolicy
+import dev.infinityf4p.tiebapure.core.model.ImportedReaderFont
+import dev.infinityf4p.tiebapure.core.model.ReaderFontFamily
 import dev.infinityf4p.tiebapure.core.model.ReaderFontSize
 import dev.infinityf4p.tiebapure.core.model.ReaderLineSpacing
 import dev.infinityf4p.tiebapure.core.model.ReaderMediaLoadingPolicy
@@ -116,10 +122,18 @@ fun ReadingSettingsRoute(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.importReaderFont(it.toString()) }
+    }
     ReadingSettingsScreen(
         preferences = state.values.reading,
+        readerFonts = state.readerFonts,
         modifier = modifier,
+        statusMessage = state.message,
+        errorMessage = state.errorMessage,
         onChange = viewModel::setReadingPreferences,
+        onImportFont = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-opentype")) },
+        onRemoveFont = viewModel::removeReaderFont,
     )
 }
 
@@ -323,8 +337,13 @@ private fun SettingsSwitchRow(
 @Composable
 fun ReadingSettingsScreen(
     preferences: ReadingPreferences,
+    readerFonts: List<ImportedReaderFont> = emptyList(),
     modifier: Modifier = Modifier,
+    statusMessage: String? = null,
+    errorMessage: String? = null,
     onChange: (ReadingPreferences) -> Unit,
+    onImportFont: () -> Unit = {},
+    onRemoveFont: (String) -> Unit = {},
 ) {
     LazyColumn(
         modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -352,10 +371,44 @@ fun ReadingSettingsScreen(
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize * preferences.fontSize.scale,
                     lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * preferences.lineSpacing.multiplier,
+                    fontFamily = readerFontFamily(preferences.fontFamily),
                 ),
             )
         }
         item { SettingsFooter("系统大字体仍会继续生效；首页和吧页的帖子摘要保持紧凑显示。") }
+        item { ReaderSectionHeader("字体") }
+        items(ReaderFontFamily.builtIn, key = ReaderFontFamily::rawValue) { family ->
+            RadioChoiceRow(
+                title = readerFontFamilyLabel(family),
+                subtitle = if (family == ReaderFontFamily.System) "跟随 Android 系统字体" else "应用到帖子标题和正文",
+                selected = preferences.fontFamily == family,
+                onClick = { onChange(preferences.copy(fontFamily = family)) },
+            )
+        }
+        items(readerFonts, key = ImportedReaderFont::id) { font ->
+            ReaderFontRow(
+                font = font,
+                selected = preferences.fontFamily == font.family,
+                onSelect = { font.family?.let { onChange(preferences.copy(fontFamily = it)) } },
+                onRemove = { onRemoveFont(font.id) },
+            )
+        }
+        item {
+            TextButton(
+                onClick = onImportFont,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Icon(Icons.Outlined.FontDownload, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("导入 TTF / OTF 字体")
+            }
+        }
+        item {
+            SettingsFooter(
+                errorMessage ?: statusMessage
+                    ?: "字体文件只保存在本机应用私有目录；单个文件最多 20 MB，最多导入 20 个。",
+            )
+        }
         item { ReaderSectionHeader("回复") }
         item {
             ChoiceChipRow(
@@ -391,6 +444,35 @@ fun ReadingSettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ReaderFontRow(
+    font: ImportedReaderFont,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val importedFamily = font.family?.let { readerFontFamily(it) }
+    Row(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+            .heightIn(min = 56.dp).clickable(onClick = onSelect).padding(start = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Text(font.displayName, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = importedFamily))
+            Text(
+                "${font.fileExtension.uppercase()} · ${formatFontBytes(font.byteCount)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除${font.displayName}")
+        }
+    }
+    HorizontalDivider(modifier = Modifier.padding(start = 52.dp))
 }
 
 @Composable
@@ -651,6 +733,19 @@ private fun fontSizeLabel(value: ReaderFontSize): String = when (value) {
     ReaderFontSize.Standard -> "标准"
     ReaderFontSize.Large -> "大"
     ReaderFontSize.ExtraLarge -> "特大"
+}
+
+private fun readerFontFamilyLabel(value: ReaderFontFamily): String = when (value) {
+    ReaderFontFamily.System -> "系统"
+    ReaderFontFamily.Serif -> "衬线"
+    ReaderFontFamily.Rounded -> "圆体"
+    ReaderFontFamily.Monospace -> "等宽"
+    else -> "自定义"
+}
+
+private fun formatFontBytes(value: Long): String = when {
+    value >= 1_024 * 1_024 -> "${value / (1_024 * 1_024)} MB"
+    else -> "${maxOf(1, value / 1_024)} KB"
 }
 
 private fun lineSpacingLabel(value: ReaderLineSpacing): String = when (value) {

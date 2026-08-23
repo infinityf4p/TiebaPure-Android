@@ -1,5 +1,7 @@
 package dev.infinityf4p.tiebapure
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,11 +19,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +69,8 @@ import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
 
+private const val SAVED_THREAD_BACKUP_MIME_TYPE = "application/vnd.infinityf4p.tiebapure.backup"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SavedThreadsRoute(
@@ -72,7 +83,33 @@ fun SavedThreadsRoute(
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var storageBytes by remember { mutableStateOf(0L) }
+    var isWorking by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var pendingImportUri by remember { mutableStateOf<String?>(null) }
+    var confirmsClear by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SavedThreadListItem?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(SAVED_THREAD_BACKUP_MIME_TYPE),
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                isWorking = true
+                errorMessage = null
+                runCatching { repository.exportBackup(it.toString()) }
+                    .onSuccess { count -> statusMessage = "已导出 $count 个本地帖子。" }
+                    .onFailure { errorMessage = it.message ?: "导出失败。" }
+                isWorking = false
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> pendingImportUri = uri?.toString() }
+    LaunchedEffect(entries) {
+        storageBytes = runCatching { repository.storageBytes() }.getOrDefault(0L)
+    }
     val visible = remember(entries, query) {
         val keyword = query.trim()
         if (keyword.isEmpty()) entries else entries.filter {
@@ -90,6 +127,68 @@ fun SavedThreadsRoute(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    if (isWorking) {
+                        CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "本地保存操作")
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("检查新回复") },
+                                leadingIcon = { Icon(Icons.Outlined.Refresh, null) },
+                                enabled = entries.isNotEmpty(),
+                                onClick = {
+                                    menuExpanded = false
+                                    scope.launch {
+                                        isWorking = true
+                                        errorMessage = null
+                                        runCatching { repository.checkForUpdates() }
+                                            .onSuccess { result ->
+                                                statusMessage = if (result.newReplies == 0) {
+                                                    "已检查 ${result.checkedThreads} 个帖子，没有新回复。"
+                                                } else {
+                                                    "${result.changedThreads} 个帖子共有 ${result.newReplies} 条新回复。"
+                                                }
+                                            }
+                                            .onFailure { errorMessage = it.message ?: "更新检查失败。" }
+                                        isWorking = false
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("导出备份") },
+                                leadingIcon = { Icon(Icons.Outlined.FileUpload, null) },
+                                enabled = entries.isNotEmpty(),
+                                onClick = {
+                                    menuExpanded = false
+                                    exportLauncher.launch("TiebaPure-${System.currentTimeMillis()}.tiebapurebackup")
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("导入备份") },
+                                leadingIcon = { Icon(Icons.Outlined.FileDownload, null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    importLauncher.launch(
+                                        arrayOf(
+                                            SAVED_THREAD_BACKUP_MIME_TYPE,
+                                            "application/zip",
+                                            "application/octet-stream",
+                                        ),
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("清空本地保存") },
+                                leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) },
+                                enabled = entries.isNotEmpty(),
+                                onClick = { menuExpanded = false; confirmsClear = true },
+                            )
+                        }
                     }
                 },
             )
@@ -125,11 +224,31 @@ fun SavedThreadsRoute(
                                     maxLines = 1,
                                 )
                                 Text(
-                                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                                        .format(Date(entry.savedAtMilliseconds)),
+                                    buildString {
+                                        append(savedThreadMediaModeLabel(entry.mediaMode))
+                                        if (entry.mediaBytes > 0) append(" · ${formatSavedBytes(entry.mediaBytes)}")
+                                        append(" · ")
+                                        append(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                            .format(Date(entry.savedAtMilliseconds)))
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                entry.lastCheckedAtMilliseconds?.let { checkedAt ->
+                                    Text(
+                                        "上次检查 " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                            .format(Date(checkedAt)),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (entry.newReplyCount > 0) {
+                                    Text(
+                                        "新增 ${entry.newReplyCount} 条回复",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(8.dp))
                             IconButton(onClick = { pendingDelete = entry }) {
@@ -140,7 +259,7 @@ fun SavedThreadsRoute(
                     }
                     item {
                         Text(
-                            "正文和楼层结构保存在本机；图片、视频和语音仍需联网加载。最多保存100个帖子。",
+                            "共 ${entries.size} 个帖子，占用 ${formatSavedBytes(storageBytes)}。完全离线模式不会在文件缺失时回退联网；最多保存 100 个帖子。",
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -153,6 +272,14 @@ fun SavedThreadsRoute(
                     it,
                     modifier = Modifier.padding(16.dp),
                     color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            statusMessage?.let {
+                Text(
+                    it,
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -177,6 +304,60 @@ fun SavedThreadsRoute(
             },
         )
     }
+    pendingImportUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingImportUri = null },
+            title = { Text("导入本地帖子备份") },
+            text = { Text("合并会保留本机较新的同名帖子；替换会先清空现有本地帖子。登录状态和设置不会导入。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingImportUri = null
+                    scope.launch {
+                        isWorking = true
+                        errorMessage = null
+                        runCatching { repository.importBackup(uri, SavedThreadImportMode.Merge) }
+                            .onSuccess { statusMessage = "已导入 ${it.importedThreads} 个，跳过 ${it.skippedThreads} 个。" }
+                            .onFailure { errorMessage = it.message ?: "导入失败。" }
+                        isWorking = false
+                    }
+                }) { Text("合并") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { pendingImportUri = null }) { Text("取消") }
+                    TextButton(onClick = {
+                        pendingImportUri = null
+                        scope.launch {
+                            isWorking = true
+                            errorMessage = null
+                            runCatching { repository.importBackup(uri, SavedThreadImportMode.Replace) }
+                                .onSuccess { statusMessage = "已用备份替换为 ${it.importedThreads} 个帖子。" }
+                                .onFailure { errorMessage = it.message ?: "导入失败。" }
+                            isWorking = false
+                        }
+                    }) { Text("替换", color = MaterialTheme.colorScheme.error) }
+                }
+            },
+        )
+    }
+    if (confirmsClear) {
+        AlertDialog(
+            onDismissRequest = { confirmsClear = false },
+            title = { Text("清空全部本地帖子？") },
+            text = { Text("帖子快照和离线媒体都会删除，无法撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmsClear = false
+                    scope.launch {
+                        runCatching { repository.clearAll() }
+                            .onSuccess { statusMessage = "已清空本地保存。" }
+                            .onFailure { errorMessage = it.message ?: "清空失败。" }
+                    }
+                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmsClear = false }) { Text("取消") } },
+        )
+    }
 }
 
 @Composable
@@ -193,6 +374,48 @@ private fun SavedThreadsEmpty(title: String, message: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+fun SavedThreadSaveModeDialog(
+    onDismiss: () -> Unit,
+    onSelect: (SavedThreadMediaMode) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("保存到本机") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SavedThreadSaveModeRow(
+                    title = "仅文字",
+                    subtitle = "保存全部楼层和楼中楼，媒体联网加载",
+                    onClick = { onSelect(SavedThreadMediaMode.TextOnly) },
+                )
+                SavedThreadSaveModeRow(
+                    title = "文字与图片",
+                    subtitle = "额外保存正文图片、头像和视频封面",
+                    onClick = { onSelect(SavedThreadMediaMode.Images) },
+                )
+                SavedThreadSaveModeRow(
+                    title = "完全离线",
+                    subtitle = "同时保存视频和语音；任一媒体失败则不覆盖旧保存",
+                    onClick = { onSelect(SavedThreadMediaMode.Complete) },
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun SavedThreadSaveModeRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -308,7 +531,12 @@ private fun SavedThreadDetailScreen(
         Column(modifier) {
             Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Text(
-                    "保存于 ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(snapshot.savedAtMilliseconds))}；媒体需联网加载",
+                    buildString {
+                        append("保存于 ")
+                        append(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(snapshot.savedAtMilliseconds)))
+                        append(" · ${savedThreadMediaModeLabel(snapshot.mediaMode)}")
+                        if (snapshot.newReplyCount > 0) append(" · 新增 ${snapshot.newReplyCount} 条回复")
+                    },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -352,4 +580,17 @@ private fun SavedThreadDetailScreen(
             )
         }
     }
+}
+
+internal fun savedThreadMediaModeLabel(mode: SavedThreadMediaMode): String = when (mode) {
+    SavedThreadMediaMode.TextOnly -> "仅文字"
+    SavedThreadMediaMode.Images -> "文字与图片"
+    SavedThreadMediaMode.Complete -> "完全离线"
+}
+
+internal fun formatSavedBytes(value: Long): String = when {
+    value >= 1_024L * 1_024 * 1_024 -> "${value / (1_024L * 1_024 * 1_024)} GB"
+    value >= 1_024L * 1_024 -> "${value / (1_024L * 1_024)} MB"
+    value >= 1_024L -> "${value / 1_024L} KB"
+    else -> "$value B"
 }

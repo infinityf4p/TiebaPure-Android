@@ -52,7 +52,7 @@ fun RemoteImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
 ) {
-    val safeUrl = url?.takeIf(MediaUrlPolicy::isAllowed)
+    val safeUrl = url?.takeIf { MediaUrlPolicy.isAllowed(it) || OfflineMediaPolicy.resolve(it) != null }
     val context = LocalContext.current.applicationContext
     val loader = remember { OriginalImageLoader(context) }
     var model by remember(safeUrl) { mutableStateOf<File?>(null) }

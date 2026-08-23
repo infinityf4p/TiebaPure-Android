@@ -3,6 +3,7 @@ package dev.infinityf4p.tiebapure.feature.settings
 import dev.infinityf4p.tiebapure.core.model.Account
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntry
 import dev.infinityf4p.tiebapure.core.model.BlocklistEntryKind
+import dev.infinityf4p.tiebapure.core.model.ImportedReaderFont
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import kotlinx.coroutines.flow.Flow
 
@@ -26,6 +27,7 @@ data class SettingsValues(
 interface SettingsRepository {
     val settings: Flow<SettingsValues>
     val blocklist: Flow<List<BlocklistEntry>>
+    val readerFonts: Flow<List<ImportedReaderFont>>
 
     suspend fun setAppearance(value: SettingsAppearance)
     suspend fun setPostingEnabled(value: Boolean)
@@ -34,6 +36,8 @@ interface SettingsRepository {
     suspend fun setAutomaticSignEnabled(value: Boolean)
     suspend fun acknowledgeSubmissionRisk()
     suspend fun setReadingPreferences(value: ReadingPreferences)
+    suspend fun importReaderFont(uri: String)
+    suspend fun removeReaderFont(id: String)
     suspend fun addBlocklistEntry(value: BlocklistEntry)
     suspend fun removeBlocklistEntry(value: BlocklistEntry)
     suspend fun clearBlocklist(kind: BlocklistEntryKind)
