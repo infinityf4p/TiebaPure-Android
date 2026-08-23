@@ -27,23 +27,30 @@ internal data class PreparedSavedThreadMedia(
 internal class SavedThreadMediaTransaction(
     private val staging: File,
     private val destination: File,
+    private val onStagingClosed: () -> Unit = {},
 ) {
     private var backup: File? = null
     private var committed = false
+    private var hadPreviousDestination = false
+    private var stagingClosed = false
 
     fun commit() {
         check(!committed)
         destination.parentFile?.mkdirs()
-        if (destination.exists()) {
-            val old = File(destination.parentFile, ".backup-${destination.name}-${UUID.randomUUID()}")
+        hadPreviousDestination = destination.exists()
+        val old = File(destination.parentFile, ".backup-${destination.name}-${UUID.randomUUID()}")
+        if (hadPreviousDestination) {
             check(destination.renameTo(old)) { "无法暂存原有离线媒体。" }
-            backup = old
+        } else {
+            check(old.mkdir()) { "无法创建离线媒体事务标记。" }
         }
+        backup = old
         try {
             check(staging.renameTo(destination)) { "无法提交离线媒体。" }
             committed = true
+            closeStaging()
         } catch (error: Throwable) {
-            backup?.renameTo(destination)
+            if (hadPreviousDestination) old.renameTo(destination) else old.deleteRecursively()
             throw error
         }
     }
@@ -54,15 +61,27 @@ internal class SavedThreadMediaTransaction(
         backup = null
         committed = false
         obsoleteBackup?.deleteRecursively()
+        closeStaging()
     }
 
     fun rollback() {
         if (committed) destination.deleteRecursively() else staging.deleteRecursively()
         backup?.let { old ->
-            if (!destination.exists()) old.renameTo(destination)
+            if (hadPreviousDestination && !destination.exists()) {
+                old.renameTo(destination)
+            } else if (!hadPreviousDestination) {
+                old.deleteRecursively()
+            }
         }
         backup = null
         committed = false
+        closeStaging()
+    }
+
+    private fun closeStaging() {
+        if (stagingClosed) return
+        stagingClosed = true
+        onStagingClosed()
     }
 }
 
@@ -72,6 +91,8 @@ class AppSavedThreadMediaStore(context: Context) {
     private val imageLoader = OriginalImageLoader(appContext)
     private val videoDownloader = SecureVideoDownloadClient(appContext)
     private val voiceDownloader = SecureVoiceAudioDownloadClient(appContext)
+    private val activeStagingLock = Any()
+    private val activeStagingPaths = mutableSetOf<String>()
 
     init {
         prepareRoot()
@@ -88,8 +109,8 @@ class AppSavedThreadMediaStore(context: Context) {
                 if (assets.containsKey(sourceKey)) return
                 val size = source.length()
                 check(size > 0) { "离线媒体文件为空。" }
+                check(size <= MAXIMUM_THREAD_MEDIA_BYTES - totalBytes) { "单个帖子离线媒体超过 512 MB。" }
                 totalBytes += size
-                check(totalBytes <= MAXIMUM_THREAD_MEDIA_BYTES) { "单个帖子离线媒体超过 512 MB。" }
                 val fileName = "${kind.name.lowercase()}-${sha256(sourceKey)}.$extension"
                 val destination = File(staging, fileName)
                 source.inputStream().use { input ->
@@ -168,9 +189,10 @@ class AppSavedThreadMediaStore(context: Context) {
                     }
                 }
                 val updated = snapshot.copy(mediaMode = mode, mediaAssets = assets.values.toList()).validated()
-                PreparedSavedThreadMedia(updated, SavedThreadMediaTransaction(staging, threadDirectory(snapshot.thread.id)))
+                PreparedSavedThreadMedia(updated, transaction(staging, threadDirectory(snapshot.thread.id)))
             } catch (error: Throwable) {
                 staging.deleteRecursively()
+                releaseStaging(staging)
                 throw error
             }
         }
@@ -192,9 +214,10 @@ class AppSavedThreadMediaStore(context: Context) {
                 val destination = source.copyTo(File(staging, asset.fileName), overwrite = false)
                 restrictToOwner(destination)
             }
-            PreparedSavedThreadMedia(snapshot.validated(), SavedThreadMediaTransaction(staging, threadDirectory(snapshot.thread.id)))
+            PreparedSavedThreadMedia(snapshot.validated(), transaction(staging, threadDirectory(snapshot.thread.id)))
         } catch (error: Throwable) {
             staging.deleteRecursively()
+            releaseStaging(staging)
             throw error
         }
     }
@@ -264,24 +287,50 @@ class AppSavedThreadMediaStore(context: Context) {
     }
 
     suspend fun remove(threadId: Long) = withContext(Dispatchers.IO) {
+        val stagingPrefix = ".staging-$threadId-"
+        val pending = synchronized(activeStagingLock) {
+            activeStagingPaths.removeAll { File(it).name.startsWith(stagingPrefix) }
+            root.listFiles().orEmpty().filter {
+                it.name.startsWith(stagingPrefix) || it.name.startsWith(".backup-$threadId-")
+            }
+        }
+        pending.forEach(File::deleteRecursively)
         threadDirectory(threadId).deleteRecursively()
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {
-        root.listFiles().orEmpty().forEach(File::deleteRecursively)
+        val children = synchronized(activeStagingLock) {
+            activeStagingPaths.clear()
+            root.listFiles().orEmpty().toList()
+        }
+        children.forEach(File::deleteRecursively)
     }
 
-    suspend fun storageBytes(): Long = withContext(Dispatchers.IO) {
-        root.walkTopDown().filter(File::isFile).sumOf(File::length)
+    suspend fun removeOrphans(validThreadIds: Set<Long>) = withContext(Dispatchers.IO) {
+        root.listFiles().orEmpty()
+            .filter { it.name.toLongOrNull()?.let { id -> id !in validThreadIds } == true }
+            .forEach(File::deleteRecursively)
+    }
+
+    suspend fun pendingRecoveryThreadIds(): Set<Long> = withContext(Dispatchers.IO) {
+        root.listFiles().orEmpty()
+            .asSequence()
+            .filter { it.name.startsWith(".backup-") }
+            .mapNotNull { backupThreadId(it.name) }
+            .toSet()
     }
 
     suspend fun repair(
         validThreadIds: Set<Long>,
         snapshots: Map<Long, SavedThreadSnapshot>,
+        textOnlyThreadIds: Set<Long>,
     ) = withContext(Dispatchers.IO) {
         prepareRoot()
-        val all = root.listFiles().orEmpty()
-        all.filter { it.name.startsWith(".staging-") }.forEach(File::deleteRecursively)
+        val (all, active) = synchronized(activeStagingLock) {
+            root.listFiles().orEmpty().toList() to activeStagingPaths.toSet()
+        }
+        all.filter { it.name.startsWith(".staging-") && it.absolutePath !in active }
+            .forEach(File::deleteRecursively)
         val backups = all.filter { it.name.startsWith(".backup-") }.groupBy { backupThreadId(it.name) }
 
         all.filter { it.name.toLongOrNull() != null }.forEach { destination ->
@@ -295,14 +344,24 @@ class AppSavedThreadMediaStore(context: Context) {
         snapshots.forEach { (threadId, snapshot) ->
             val destination = threadDirectory(threadId)
             val candidates = backups[threadId].orEmpty()
+            if (candidates.isEmpty()) {
+                if (snapshot.mediaMode == SavedThreadMediaMode.TextOnly) destination.deleteRecursively()
+                return@forEach
+            }
             if (directoryMatches(destination, snapshot)) {
                 candidates.forEach(File::deleteRecursively)
             } else {
                 val restorable = candidates.firstOrNull { directoryMatches(it, snapshot) }
-                destination.deleteRecursively()
-                if (restorable != null) check(restorable.renameTo(destination)) { "无法恢复离线媒体。" }
-                candidates.filterNot { it == restorable }.forEach(File::deleteRecursively)
+                if (restorable != null) {
+                    destination.deleteRecursively()
+                    check(restorable.renameTo(destination)) { "无法恢复离线媒体。" }
+                    candidates.filterNot { it == restorable }.forEach(File::deleteRecursively)
+                }
             }
+            if (snapshot.mediaMode == SavedThreadMediaMode.TextOnly) destination.deleteRecursively()
+        }
+        textOnlyThreadIds.intersect(validThreadIds).forEach { threadId ->
+            threadDirectory(threadId).deleteRecursively()
         }
     }
 
@@ -314,8 +373,21 @@ class AppSavedThreadMediaStore(context: Context) {
     private fun createStaging(threadId: Long): File {
         prepareRoot()
         val staging = File(root, ".staging-$threadId-${UUID.randomUUID()}")
-        check(staging.mkdir()) { "无法创建离线媒体暂存目录。" }
+        synchronized(activeStagingLock) {
+            check(staging.mkdir()) { "无法创建离线媒体暂存目录。" }
+            activeStagingPaths += staging.absolutePath
+        }
         return staging
+    }
+
+    private fun transaction(staging: File, destination: File) = SavedThreadMediaTransaction(
+        staging = staging,
+        destination = destination,
+        onStagingClosed = { releaseStaging(staging) },
+    )
+
+    private fun releaseStaging(staging: File) {
+        synchronized(activeStagingLock) { activeStagingPaths -= staging.absolutePath }
     }
 
     private fun prepareRoot() {

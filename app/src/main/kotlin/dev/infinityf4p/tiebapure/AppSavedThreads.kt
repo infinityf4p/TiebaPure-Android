@@ -73,25 +73,42 @@ data class SavedThreadSnapshot(
         get() = (latestReplyCount - thread.replyCount).coerceAtLeast(0)
 
     fun validated(): SavedThreadSnapshot {
-        check(thread.id > 0 && forum.id > 0) { "帖子或贴吧标识无效。" }
-        check(mainPost?.post?.id != null && mainPost!!.post.id > 0uL) { "没有拿到完整主楼。" }
-        check(posts.all { it.post.id > 0uL && it.post.threadId == thread.id }) { "帖子楼层不完整。" }
-        check(posts.map { it.post.id }.distinct().size == posts.size) { "帖子分页内容重复。" }
+        val mainPosts = posts.filter { it.post.floor == 1 }
+        val postIDs = posts.map { it.post.id }
+        val postFloors = posts.map { it.post.floor }
+        val subpostIDs = posts.flatMap { saved -> saved.subposts.map(Subpost::id) }
+        check(thread.id > 0 && forum.id > 0 && savedAtMilliseconds > 0) { "帖子或贴吧标识无效。" }
+        check(mainPosts.size == 1 && mainPosts.single().post.id > 0uL) { "没有拿到完整主楼。" }
+        check(posts.all { saved ->
+            saved.post.id > 0uL && saved.post.threadId == thread.id && saved.post.floor > 0 &&
+                saved.subposts.all { it.id > 0uL && it.floor > 0 } &&
+                saved.subposts.map(Subpost::id).distinct().size == saved.subposts.size
+        }) { "帖子楼层不完整。" }
+        check(postIDs.distinct().size == posts.size && postFloors.distinct().size == posts.size) {
+            "帖子分页内容重复。"
+        }
+        check(subpostIDs.distinct().size == subpostIDs.size) { "楼中楼分页内容重复。" }
         check(latestReplyCount >= 0) { "帖子回复数无效。" }
         check(mediaAssets.map { it.sourceKey }.distinct().size == mediaAssets.size) { "离线媒体来源重复。" }
         check(mediaAssets.map { it.fileName }.distinct().size == mediaAssets.size) { "离线媒体文件重复。" }
         check(mediaAssets.all {
             it.sourceKey.isNotBlank() && it.sourceKey.length <= 8_192 &&
-                it.fileName.matches(Regex("^[a-z0-9_-]{1,100}\\.[a-z0-9]{1,8}$")) &&
-                it.byteCount in 1..MAXIMUM_MEDIA_BYTES && it.sha256.matches(Regex("^[0-9a-f]{64}$"))
+                it.fileName.matches(FILE_NAME_PATTERN) &&
+                it.byteCount in 1..MAXIMUM_MEDIA_BYTES && it.sha256.matches(DIGEST_PATTERN)
         }) { "离线媒体索引无效。" }
-        check(mediaAssets.sumOf(SavedThreadMediaAsset::byteCount) <= MAXIMUM_MEDIA_BYTES) { "离线媒体超过单帖上限。" }
+        var mediaBytes = 0L
+        mediaAssets.forEach { asset ->
+            check(asset.byteCount <= MAXIMUM_MEDIA_BYTES - mediaBytes) { "离线媒体超过单帖上限。" }
+            mediaBytes += asset.byteCount
+        }
         check(mediaMode != SavedThreadMediaMode.TextOnly || mediaAssets.isEmpty()) { "纯文字保存不应包含媒体。" }
         return this
     }
 
     private companion object {
         const val MAXIMUM_MEDIA_BYTES = 512L * 1_024 * 1_024
+        val FILE_NAME_PATTERN = Regex("^[a-z0-9_-]{1,100}\\.[a-z0-9]{1,8}$")
+        val DIGEST_PATTERN = Regex("^[0-9a-f]{64}$")
     }
 }
 
@@ -103,6 +120,7 @@ data class SavedThreadListItem(
     val savedAtMilliseconds: Long,
     val mediaMode: SavedThreadMediaMode,
     val mediaBytes: Long,
+    val snapshotBytes: Long,
     val newReplyCount: Int,
     val lastCheckedAtMilliseconds: Long?,
 )
@@ -126,29 +144,38 @@ class AppSavedThreadRepository(
     suspend fun save(
         threadId: Long,
         mode: SavedThreadMediaMode = SavedThreadMediaMode.TextOnly,
-    ): SavedThreadSnapshot = serialized {
+    ): SavedThreadSnapshot {
         val captured = capture(threadId).validated()
         val prepared = mediaStore.prepare(captured, mode)
         val snapshot = prepared.snapshot
-        val encoded = SavedThreadBlobCodec.encode(snapshot)
-        try {
-            prepared.transaction.commit()
-            dao.upsert(snapshot.toEntity(encoded))
+        return try {
+            val encoded = SavedThreadBlobCodec.encode(snapshot)
+            serialized {
+                try {
+                    prepared.transaction.commit()
+                    dao.upsert(snapshot.toEntity(encoded))
+                } catch (error: Throwable) {
+                    prepared.transaction.rollback()
+                    throw error
+                }
+                runCatching { prepared.transaction.finish() }
+                runCatching { mediaStore.removeOrphans(dao.threadIds().toSet()) }
+                snapshot
+            }
         } catch (error: Throwable) {
             prepared.transaction.rollback()
             throw error
         }
-        runCatching { prepared.transaction.finish() }
-        runCatching { repairMediaStorage() }
-        snapshot
     }
 
-    suspend fun load(threadId: Long): SavedThreadSnapshot? = serialized {
-        val entity = dao.load(threadId) ?: return@serialized null
-        val snapshot = SavedThreadBlobCodec.decode(entity.snapshotBlob).validated().also {
-            check(it.thread.id == entity.threadId) { "本地保存索引与快照不一致。" }
+    suspend fun load(threadId: Long): SavedThreadSnapshot? {
+        val snapshot = serialized {
+            val entity = dao.load(threadId) ?: return@serialized null
+            SavedThreadBlobCodec.decode(entity.snapshotBlob).validated().also {
+                check(it.thread.id == entity.threadId) { "本地保存索引与快照不一致。" }
+            }
         }
-        mediaStore.resolve(snapshot)
+        return snapshot?.let { mediaStore.resolve(it) }
     }
 
     suspend fun remove(threadId: Long) = serialized {
@@ -165,42 +192,42 @@ class AppSavedThreadRepository(
         repairMediaStorage()
     }
 
-    suspend fun storageBytes(): Long = serialized {
-        dao.loadAll().sumOf { it.snapshotBlob.size.toLong() } + mediaStore.storageBytes()
-    }
-
     suspend fun exportBackup(uri: String): Int = serialized { backup.export(uri) }
 
     suspend fun importBackup(uri: String, mode: SavedThreadImportMode): SavedThreadBackupImportResult =
         serialized { backup.import(uri, mode) }
 
-    suspend fun checkForUpdates(threadId: Long? = null): SavedThreadUpdateCheckResult = serialized {
-        val targets = if (threadId == null) dao.loadAll() else listOfNotNull(dao.load(threadId))
-        var checked = 0
-        var changed = 0
-        var newReplies = 0
-        targets.forEach { entity ->
-            val snapshot = SavedThreadBlobCodec.decode(entity.snapshotBlob).validated()
+    suspend fun checkForUpdates(threadId: Long? = null): SavedThreadUpdateCheckResult {
+        val targetIDs = serialized {
+            if (threadId == null) dao.threadIds() else listOfNotNull(dao.load(threadId)?.threadId)
+        }
+        val activeAccount = account()
+        val remote = targetIDs.associateWith { targetID ->
             val page = repositories.thread.page(
-                threadId = entity.threadId,
+                threadId = targetID,
                 page = 1,
                 sort = ThreadReplySort.Ascending,
-                account = account(),
+                account = activeAccount,
             )
-            check(page.thread.id == entity.threadId) { "帖子更新检查响应不一致。" }
-            val latest = maxOf(0, page.thread.replyCount)
-            val updated = snapshot.copy(
-                lastCheckedAtMilliseconds = nowMilliseconds(),
-                latestReplyCount = latest,
-            ).validated()
-            dao.upsert(updated.toEntity(SavedThreadBlobCodec.encode(updated)))
-            checked += 1
-            if (updated.newReplyCount > 0) {
-                changed += 1
-                newReplies += updated.newReplyCount
-            }
+            check(page.thread.id == targetID) { "帖子更新检查响应不一致。" }
+            maxOf(0, page.thread.replyCount) to nowMilliseconds()
         }
-        SavedThreadUpdateCheckResult(checked, changed, newReplies)
+        return serialized {
+            val current = dao.load(targetIDs)
+            val updated = current.mapNotNull { entity ->
+                val (latest, checkedAt) = remote[entity.threadId] ?: return@mapNotNull null
+                SavedThreadBlobCodec.decode(entity.snapshotBlob).validated().copy(
+                    lastCheckedAtMilliseconds = checkedAt,
+                    latestReplyCount = latest,
+                ).validated()
+            }
+            dao.upsertAll(updated.map { it.toEntity(SavedThreadBlobCodec.encode(it)) })
+            SavedThreadUpdateCheckResult(
+                checkedThreads = updated.size,
+                changedThreads = updated.count { it.newReplyCount > 0 },
+                newReplies = updated.sumOf(SavedThreadSnapshot::newReplyCount),
+            )
+        }
     }
 
     private suspend fun <T> serialized(action: suspend () -> T): T = withContext(Dispatchers.IO) {
@@ -208,12 +235,26 @@ class AppSavedThreadRepository(
     }
 
     private suspend fun repairMediaStorage() {
-        val entities = dao.loadAll()
-        val snapshots = entities.mapNotNull { entity ->
-            runCatching { SavedThreadBlobCodec.decode(entity.snapshotBlob).validated() }
-                .getOrNull()?.let { entity.threadId to it }
-        }.toMap()
-        mediaStore.repair(entities.map(SavedThreadEntity::threadId).toSet(), snapshots)
+        val validThreadIDs = dao.threadIds().toSet()
+        val pendingRecoveryIDs = mediaStore.pendingRecoveryThreadIds().intersect(validThreadIDs)
+        val metadataEntities = dao.loadNeedingMetadataRepair(CURRENT_METADATA_VERSION)
+        val recoveryEntities = dao.load(pendingRecoveryIDs)
+        val decoded = (metadataEntities + recoveryEntities)
+            .distinctBy(SavedThreadEntity::threadId)
+            .mapNotNull { entity ->
+                runCatching { SavedThreadBlobCodec.decode(entity.snapshotBlob).validated() }
+                    .getOrNull()?.let { entity.threadId to it }
+            }.toMap()
+        val repairedMetadata = metadataEntities.mapNotNull { entity ->
+            decoded[entity.threadId]?.toEntity(entity.snapshotBlob)
+        }
+        if (repairedMetadata.isNotEmpty()) dao.refreshMetadata(repairedMetadata)
+        val textOnlyThreadIDs = dao.threadIdsWithMediaMode(SavedThreadMediaMode.TextOnly.name).toSet()
+        mediaStore.repair(
+            validThreadIDs,
+            decoded.filterKeys(pendingRecoveryIDs::contains),
+            textOnlyThreadIDs,
+        )
     }
 
     private suspend fun capture(threadId: Long): SavedThreadSnapshot {
@@ -312,6 +353,7 @@ class AppSavedThreadRepository(
 
     private companion object {
         const val MAXIMUM_PAGES = 10_000
+        const val CURRENT_METADATA_VERSION = 1
     }
 }
 
@@ -328,23 +370,29 @@ private fun SavedThreadSnapshot.toEntity(encoded: ByteArray) = SavedThreadEntity
     forumName = forum.displayName.ifBlank { forum.name },
     savedAtMilliseconds = savedAtMilliseconds,
     snapshotBlob = encoded,
+    mediaMode = mediaMode.name,
+    mediaByteCount = mediaAssets.sumOf(SavedThreadMediaAsset::byteCount),
+    newReplyCount = newReplyCount,
+    lastCheckedAtMilliseconds = lastCheckedAtMilliseconds,
+    metadataVersion = 1,
 )
 
 private fun dev.infinityf4p.tiebapure.core.model.ThreadPage.mainPostResolved(): Post? =
     mainPost ?: posts.firstOrNull { it.floor == 1 }
 
 private fun SavedThreadMetadata.toListItem(): SavedThreadListItem {
-    val snapshot = runCatching { SavedThreadBlobCodec.decode(snapshotBlob).validated() }.getOrNull()
     return SavedThreadListItem(
         threadId = threadId,
         title = title,
         authorName = authorName,
         forumName = forumName,
         savedAtMilliseconds = savedAtMilliseconds,
-        mediaMode = snapshot?.mediaMode ?: SavedThreadMediaMode.TextOnly,
-        mediaBytes = snapshot?.mediaAssets?.sumOf(SavedThreadMediaAsset::byteCount) ?: 0L,
-        newReplyCount = snapshot?.newReplyCount ?: 0,
-        lastCheckedAtMilliseconds = snapshot?.lastCheckedAtMilliseconds,
+        mediaMode = SavedThreadMediaMode.entries.firstOrNull { it.name == mediaMode }
+            ?: SavedThreadMediaMode.TextOnly,
+        mediaBytes = mediaByteCount.coerceAtLeast(0),
+        snapshotBytes = snapshotByteCount.coerceAtLeast(0),
+        newReplyCount = newReplyCount.coerceAtLeast(0),
+        lastCheckedAtMilliseconds = lastCheckedAtMilliseconds,
     )
 }
 

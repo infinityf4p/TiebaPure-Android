@@ -49,11 +49,18 @@ data class SavedThreadEntity(
     @ColumnInfo(name = "forum_name") val forumName: String,
     @ColumnInfo(name = "saved_at_ms") val savedAtMilliseconds: Long,
     @ColumnInfo(name = "snapshot_blob", typeAffinity = ColumnInfo.BLOB) val snapshotBlob: ByteArray,
+    @ColumnInfo(name = "media_mode", defaultValue = "'TextOnly'") val mediaMode: String = "TextOnly",
+    @ColumnInfo(name = "media_byte_count", defaultValue = "0") val mediaByteCount: Long = 0,
+    @ColumnInfo(name = "new_reply_count", defaultValue = "0") val newReplyCount: Int = 0,
+    @ColumnInfo(name = "last_checked_at_ms") val lastCheckedAtMilliseconds: Long? = null,
+    @ColumnInfo(name = "metadata_version", defaultValue = "0") val metadataVersion: Int = 1,
 ) {
     override fun equals(other: Any?): Boolean = other is SavedThreadEntity &&
         threadId == other.threadId && title == other.title && authorName == other.authorName &&
         forumName == other.forumName && savedAtMilliseconds == other.savedAtMilliseconds &&
-        snapshotBlob.contentEquals(other.snapshotBlob)
+        snapshotBlob.contentEquals(other.snapshotBlob) && mediaMode == other.mediaMode &&
+        mediaByteCount == other.mediaByteCount && newReplyCount == other.newReplyCount &&
+        lastCheckedAtMilliseconds == other.lastCheckedAtMilliseconds && metadataVersion == other.metadataVersion
 
     override fun hashCode(): Int = listOf(
         threadId,
@@ -62,6 +69,11 @@ data class SavedThreadEntity(
         forumName,
         savedAtMilliseconds,
         snapshotBlob.contentHashCode(),
+        mediaMode,
+        mediaByteCount,
+        newReplyCount,
+        lastCheckedAtMilliseconds,
+        metadataVersion,
     ).hashCode()
 }
 
@@ -71,7 +83,11 @@ data class SavedThreadMetadata(
     @ColumnInfo(name = "author_name") val authorName: String,
     @ColumnInfo(name = "forum_name") val forumName: String,
     @ColumnInfo(name = "saved_at_ms") val savedAtMilliseconds: Long,
-    @ColumnInfo(name = "snapshot_blob", typeAffinity = ColumnInfo.BLOB) val snapshotBlob: ByteArray,
+    @ColumnInfo(name = "media_mode") val mediaMode: String,
+    @ColumnInfo(name = "media_byte_count") val mediaByteCount: Long,
+    @ColumnInfo(name = "new_reply_count") val newReplyCount: Int,
+    @ColumnInfo(name = "last_checked_at_ms") val lastCheckedAtMilliseconds: Long?,
+    @ColumnInfo(name = "snapshot_byte_count") val snapshotByteCount: Long,
 )
 
 @Entity(

@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SavedThreadEntity::class,
         SearchHistoryEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class TiebaPureDatabase : RoomDatabase() {
@@ -38,32 +38,42 @@ abstract class TiebaPureDatabase : RoomDatabase() {
                 context.applicationContext,
                 TiebaPureDatabase::class.java,
                 "tiebapure.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
 
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("DROP TABLE IF EXISTS `content_drafts`")
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `content_drafts`")
+                db.execSQL(
                     """CREATE TABLE IF NOT EXISTS `content_drafts` (`account_id` TEXT NOT NULL, `target_key` TEXT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `target_metadata` BLOB NOT NULL, `attachment_file_name` TEXT NOT NULL, `attachment_byte_count` INTEGER NOT NULL, `attachment_sha256` TEXT NOT NULL, `image_count` INTEGER NOT NULL, `updated_at_ms` INTEGER NOT NULL, PRIMARY KEY(`account_id`, `target_key`))""",
                 )
-                database.execSQL(
+                db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_content_drafts_account_id` ON `content_drafts` (`account_id`)",
                 )
-                database.execSQL(
+                db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_content_drafts_updated_at_ms` ON `content_drafts` (`updated_at_ms`)",
                 )
             }
         }
 
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """CREATE TABLE IF NOT EXISTS `saved_threads` (`thread_id` INTEGER NOT NULL, `title` TEXT NOT NULL, `author_name` TEXT NOT NULL, `forum_name` TEXT NOT NULL, `saved_at_ms` INTEGER NOT NULL, `snapshot_blob` BLOB NOT NULL, PRIMARY KEY(`thread_id`))""",
                 )
-                database.execSQL(
+                db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_saved_threads_saved_at_ms` ON `saved_threads` (`saved_at_ms`)",
                 )
+            }
+        }
+
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `saved_threads` ADD COLUMN `media_mode` TEXT NOT NULL DEFAULT 'TextOnly'")
+                db.execSQL("ALTER TABLE `saved_threads` ADD COLUMN `media_byte_count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `saved_threads` ADD COLUMN `new_reply_count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `saved_threads` ADD COLUMN `last_checked_at_ms` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `saved_threads` ADD COLUMN `metadata_version` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
