@@ -26,7 +26,7 @@ data class TiebaEndpoint(
         val FollowedForums = endpoint(APP, "/c/f/forum/like", EndpointAccess.AuthenticatedRead)
         val ForumPageForm = endpoint(APP, "/c/f/frs/page", EndpointAccess.AnonymousRead)
         val Personalized = endpoint(WEB, "/c/f/excellent/personalized", EndpointAccess.AnonymousRead, "cmd" to "309264")
-        val ForumPage = endpoint(WEB, "/c/f/frs/page", EndpointAccess.AuthenticatedRead, "cmd" to "301001")
+        val ForumPage = endpoint(PROTOBUF, "/c/f/frs/page", EndpointAccess.AuthenticatedRead, "cmd" to "301001")
         val ThreadPage = endpoint(
             WEB,
             "/c/f/pb/page",

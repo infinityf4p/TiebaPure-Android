@@ -67,6 +67,7 @@ class DefaultTiebaReadService(
             protoFactory.forumThreads(account, name, page, category),
             account,
             includeStoken = true,
+            headers = mapOf("X-BD-DATA-TYPE" to "protobuf"),
         )
         return TiebaProtoMapper.forum(transport.protobuf(request, FrsPage.FrsPageResponse.parser()), name, page)
     }
