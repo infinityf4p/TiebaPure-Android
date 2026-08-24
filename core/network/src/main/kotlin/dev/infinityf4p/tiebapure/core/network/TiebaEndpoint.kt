@@ -23,7 +23,7 @@ data class TiebaEndpoint(
         val PostingLogin = endpoint(PROTOBUF, "/c/s/login", EndpointAccess.Authentication)
         val InitNickname = endpoint(APP, "/c/s/initNickname", EndpointAccess.Authentication)
         val WebMyInfo = endpoint(WEB, "/mo/q/newmoindex", EndpointAccess.AuthenticatedRead)
-        val FollowedForums = endpoint(APP, "/c/f/forum/getforumlist", EndpointAccess.AuthenticatedRead)
+        val FollowedForums = endpoint(APP, "/c/f/forum/like", EndpointAccess.AuthenticatedRead)
         val ForumPageForm = endpoint(APP, "/c/f/frs/page", EndpointAccess.AnonymousRead)
         val Personalized = endpoint(WEB, "/c/f/excellent/personalized", EndpointAccess.AnonymousRead, "cmd" to "309264")
         val ForumPage = endpoint(WEB, "/c/f/frs/page", EndpointAccess.AuthenticatedRead, "cmd" to "301001")

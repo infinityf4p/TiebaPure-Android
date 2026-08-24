@@ -215,14 +215,14 @@ class AutomaticSignStore(
     @Synchronized
     fun hasCompletedToday(accountId: String): Boolean =
         accountId.isNotBlank() && preferences.getString(accountKey(accountId), null) ==
-            automaticSignDayStamp(nowEpochMilliseconds())
+            automaticSignCompletionMarker(nowEpochMilliseconds())
 
     @Synchronized
     fun markCompletedToday(accountId: String) {
         require(accountId.isNotBlank())
         check(
             preferences.edit()
-                .putString(accountKey(accountId), automaticSignDayStamp(nowEpochMilliseconds()))
+                .putString(accountKey(accountId), automaticSignCompletionMarker(nowEpochMilliseconds()))
                 .commit(),
         )
     }
@@ -232,6 +232,9 @@ class AutomaticSignStore(
 
 internal fun automaticSignDayStamp(epochMilliseconds: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date(epochMilliseconds))
+
+internal fun automaticSignCompletionMarker(epochMilliseconds: Long): String =
+    "v2:${automaticSignDayStamp(epochMilliseconds)}"
 
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(toByteArray(Charsets.UTF_8))

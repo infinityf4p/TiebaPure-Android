@@ -14,6 +14,24 @@ import kotlin.test.assertTrue
 
 class RequestFactoryTest {
     @Test
+    fun followedForumsUsesSignedPaginationFields() {
+        val request = TiebaReadRequestFactory.followedForums(testAccount(), 2, testRequestBuilder())
+        val fields = request.formFields()
+
+        assertEquals(TiebaEndpoint.FollowedForums.url, request.url)
+        assertEquals("POST", request.method)
+        assertEquals("bdtb for Android ${TiebaClientVersion.V12.value}", request.header("User-Agent"))
+        assertEquals("bduss", fields["BDUSS"])
+        assertNull(fields["stoken"])
+        assertEquals("42", fields["friend_uid"])
+        assertEquals("2", fields["page_no"])
+        assertEquals("50", fields["page_size"])
+        assertEquals("CLIENT|000000000000000", fields["cuid"])
+        assertEquals("CLIENT|000000000000000", fields["cuid_galaxy2"])
+        assertEquals(TiebaFormSigner.sign(fields - "sign"), fields["sign"])
+    }
+
+    @Test
     fun searchEncodesLiteralPlusInQuery() {
         val request = TiebaReadRequestFactory.searchThreads("C++", 1, testRequestBuilder())
 
