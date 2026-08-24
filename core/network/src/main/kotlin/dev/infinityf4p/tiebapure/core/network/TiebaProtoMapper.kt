@@ -176,21 +176,26 @@ object TiebaProtoMapper {
     fun userThreads(
         response: ProfileProtocol.UserThreadsResponse,
         page: Int,
+        isCurrentUser: Boolean,
     ): UserThreadsPage {
         validate(response.error)
         if (!response.hasData()) throw TiebaApiException.EmptyResponse
         val raw = response.data.postListList
         val mapped = raw.mapNotNull(::userThread)
-        val targets = raw.mapNotNull { item ->
-            if (item.forumId == 0L || item.threadId == 0L || item.postId == 0L) null else {
-                item.threadId to OwnThreadDeletionTarget(
-                    forumId = item.forumId.toLong(),
-                    forumName = item.forumName,
-                    threadId = item.threadId.toLong(),
-                    firstPostId = item.postId.toULong(),
-                )
-            }
-        }.toMap()
+        val targets = if (isCurrentUser) {
+            raw.mapNotNull { item ->
+                if (item.forumId == 0L || item.threadId == 0L || item.postId == 0L) null else {
+                    item.threadId to OwnThreadDeletionTarget(
+                        forumId = item.forumId,
+                        forumName = item.forumName,
+                        threadId = item.threadId,
+                        firstPostId = item.postId.toULong(),
+                    )
+                }
+            }.toMap()
+        } else {
+            emptyMap()
+        }
         return UserThreadsPage(
             threads = mapped,
             currentPage = page,

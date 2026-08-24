@@ -18,6 +18,7 @@ import tieba.Personalized
 import tieba.ThreadInfoOuterClass.ThreadInfo
 import tieba.UserOuterClass.User
 import tieba.frsPage.FrsPage
+import tiebapure.profile.UserProfile as ProfileProtocol
 
 class TiebaReadServiceTest {
     @Test
@@ -100,6 +101,38 @@ class TiebaReadServiceTest {
         assertEquals("301001", request.url.queryParameter("cmd"))
         assertEquals(88, page.threads.single().id)
         assertEquals("显示名", page.threads.single().author.displayName)
+    }
+
+    @Test
+    fun userThreadsOnlyExposeDeletionTargetsForCurrentAccount() = withServer { server, client ->
+        val response = ProfileProtocol.UserThreadsResponse.newBuilder()
+            .setError(Error.getDefaultInstance())
+            .setData(
+                ProfileProtocol.UserThreadsResponseData.newBuilder()
+                    .addPostList(
+                        ProfileProtocol.UserThreadItem.newBuilder()
+                            .setForumId(11)
+                            .setForumName("测试")
+                            .setThreadId(22)
+                            .setPostId(33)
+                            .setTitle("fixture title"),
+                    ),
+            )
+            .build()
+        repeat(2) {
+            server.enqueue(MockResponse.Builder().body(Buffer().write(response.toByteArray())).build())
+        }
+
+        val service = DefaultTiebaReadService(TiebaTransport(client), testRequestBuilder())
+        val otherUserPage = runBlocking { service.userThreads(testAccount(), userId = 7, page = 1) }
+        val currentUserPage = runBlocking { service.userThreads(testAccount(), userId = 42, page = 1) }
+
+        assertTrue(otherUserPage.deletionTargetsByThreadId.isEmpty())
+        val target = currentUserPage.deletionTargetsByThreadId.getValue(22)
+        assertEquals(11L, target.forumId)
+        assertEquals("测试", target.forumName)
+        assertEquals(22L, target.threadId)
+        assertEquals(33uL, target.firstPostId)
     }
 
     @Test
