@@ -17,6 +17,7 @@ import tieba.PbContentOuterClass.PbContent
 import tieba.Personalized
 import tieba.ThreadInfoOuterClass.ThreadInfo
 import tieba.UserOuterClass.User
+import tieba.frsPage.FrsPage
 
 class TiebaReadServiceTest {
     @Test
@@ -67,6 +68,38 @@ class TiebaReadServiceTest {
         assertEquals("显示名", page.threads.single().author.displayName)
         assertIs<ContentBlock.Image>(page.threads.single().blocks.last())
         assertTrue((page.threads.single().blocks.last() as ContentBlock.Image).value.thumbnailUrl!!.startsWith("https://"))
+    }
+
+    @Test
+    fun authenticatedForumRequestDeclaresAndDecodesProtobuf() = withServer { server, client ->
+        val response = FrsPage.FrsPageResponse.newBuilder()
+            .setError(Error.getDefaultInstance())
+            .setData(
+                FrsPage.FrsPageResponseData.newBuilder()
+                    .addUserList(User.newBuilder().setId(9).setName("raw").setNameShow("显示名"))
+                    .addThreadList(
+                        ThreadInfo.newBuilder()
+                            .setId(88)
+                            .setTitle("吧页主题")
+                            .setAuthorId(9)
+                            .setForumId(7)
+                            .setForumName("测试")
+                            .build(),
+                    ),
+            )
+            .build()
+        server.enqueue(MockResponse.Builder().body(Buffer().write(response.toByteArray())).build())
+
+        val service = DefaultTiebaReadService(TiebaTransport(client), testRequestBuilder())
+        val page = runBlocking {
+            service.forum(testAccount(), "测试", 1, ForumThreadCategory.ReplyTime)
+        }
+        val request = server.takeRequest()
+
+        assertEquals("protobuf", request.headers["X-BD-DATA-TYPE"])
+        assertEquals("301001", request.url.queryParameter("cmd"))
+        assertEquals(88, page.threads.single().id)
+        assertEquals("显示名", page.threads.single().author.displayName)
     }
 
     @Test

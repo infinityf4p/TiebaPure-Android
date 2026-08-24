@@ -19,6 +19,8 @@ class EndpointTest {
 
     @Test
     fun protobufEndpointsCarryExpectedCommands() {
+        assertEquals("tiebac.baidu.com", TiebaEndpoint.ForumPage.url.host)
+        assertEquals("301001", TiebaEndpoint.ForumPage.url.queryParameter("cmd"))
         assertEquals("302001", TiebaEndpoint.ThreadPage.url.queryParameter("cmd"))
         assertEquals("302002", TiebaEndpoint.Subposts.url.queryParameter("cmd"))
         assertEquals("protobuf", TiebaEndpoint.UserProfile.url.queryParameter("format"))
