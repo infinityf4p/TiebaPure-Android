@@ -133,7 +133,9 @@ class DefaultTiebaReadService(
             headers = mapOf("X-BD-DATA-TYPE" to "protobuf"),
         )
         return TiebaProtoMapper.userThreads(
-            transport.protobuf(request, ProfileProtocol.UserThreadsResponse.parser()), page,
+            transport.protobuf(request, ProfileProtocol.UserThreadsResponse.parser()),
+            page,
+            isCurrentUser = account?.uid?.toLongOrNull() == userId,
         )
     }
 }

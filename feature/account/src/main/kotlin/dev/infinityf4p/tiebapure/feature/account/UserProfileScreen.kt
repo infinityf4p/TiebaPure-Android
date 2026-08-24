@@ -186,7 +186,7 @@ private fun ProfileContent(
                         AccountThreadRow(
                             thread = thread,
                             onClick = { onOpenThread(thread) },
-                            trailing = state.deletionTargets[thread.id]?.let {
+                            trailing = state.deletionTargets[thread.id]?.takeIf { profile.isCurrentUser }?.let {
                                 {
                                     IconButton(
                                         onClick = { pendingDeleteThreadId = thread.id },

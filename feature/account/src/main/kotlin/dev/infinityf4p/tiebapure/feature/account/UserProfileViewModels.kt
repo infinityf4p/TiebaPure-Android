@@ -86,7 +86,7 @@ class UserProfileViewModel internal constructor(
                     profile = profile,
                     threads = page.threads.distinctBy(ThreadSummary::id),
                     threadVisibility = page.visibility,
-                    deletionTargets = page.deletionTargetsByThreadId,
+                    deletionTargets = page.deletionTargetsByThreadId.takeIf { profile.isCurrentUser }.orEmpty(),
                     isInitialLoading = false,
                     isRefreshing = false,
                     hasMoreThreads = page.hasMore,
@@ -121,7 +121,11 @@ class UserProfileViewModel internal constructor(
                     _uiState.update { current ->
                         current.copy(
                             threads = mergeProfileThreads(current.threads, page.threads),
-                            deletionTargets = current.deletionTargets + page.deletionTargetsByThreadId,
+                            deletionTargets = if (current.profile?.isCurrentUser == true) {
+                                current.deletionTargets + page.deletionTargetsByThreadId
+                            } else {
+                                emptyMap()
+                            },
                             threadVisibility = page.visibility,
                             isLoadingMore = false,
                             hasMoreThreads = page.hasMore,
@@ -179,6 +183,7 @@ class UserProfileViewModel internal constructor(
 
     fun deleteThread(threadId: Long) {
         val state = _uiState.value
+        if (state.profile?.isCurrentUser != true) return
         val target = state.deletionTargets[threadId]?.takeIf {
             it.threadId == threadId && it.forumId > 0 && it.firstPostId > 0uL && it.forumName.isNotBlank()
         } ?: return

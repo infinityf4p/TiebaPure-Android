@@ -1,6 +1,7 @@
 package dev.infinityf4p.tiebapure.feature.account
 
 import dev.infinityf4p.tiebapure.core.model.OwnThreadDeletionTarget
+import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserContentVisibility
 import dev.infinityf4p.tiebapure.core.model.UserProfile
 import dev.infinityf4p.tiebapure.core.model.UserProfileSex
@@ -132,6 +133,30 @@ class UserProfileViewModelTest {
         assertTrue(viewModel.uiState.value.profile?.isFollowed == true)
         assertFalse(viewModel.uiState.value.isMutatingFollow)
     }
+
+    @Test
+    fun otherUserProfileDiscardsUnexpectedDeletionTargets() = withModelScope { scope ->
+        val repository = ControllableUserProfileRepository()
+        val viewModel = UserProfileViewModel(targetUser, repository, scope)
+
+        repository.profileCalls.single().result.complete(profile())
+        repository.threadCalls.single().result.complete(threadsPageWithDeletionTarget())
+
+        assertTrue(viewModel.uiState.value.deletionTargets.isEmpty())
+        viewModel.deleteThread(profileThread.id)
+        assertTrue(repository.deletionCalls.isEmpty())
+    }
+
+    @Test
+    fun currentUserProfileKeepsValidDeletionTargets() = withModelScope { scope ->
+        val repository = ControllableUserProfileRepository()
+        val viewModel = UserProfileViewModel(targetUser, repository, scope)
+
+        repository.profileCalls.single().result.complete(profile().copy(isCurrentUser = true))
+        repository.threadCalls.single().result.complete(threadsPageWithDeletionTarget())
+
+        assertEquals(deletionTarget, viewModel.uiState.value.deletionTargets[profileThread.id])
+    }
 }
 
 class UserRelationshipsViewModelTest {
@@ -260,6 +285,7 @@ private class ControllableUserProfileRepository : UserProfileRepository {
     val profileCalls = mutableListOf<ProfileCall>()
     val threadCalls = mutableListOf<ThreadCall>()
     val followCalls = mutableListOf<FollowCall>()
+    val deletionCalls = mutableListOf<OwnThreadDeletionTarget>()
 
     override suspend fun loadProfile(user: UserSummary): UserProfile {
         val call = ProfileCall(user)
@@ -280,7 +306,7 @@ private class ControllableUserProfileRepository : UserProfileRepository {
     }
 
     override suspend fun deleteOwnThread(target: OwnThreadDeletionTarget) {
-        error("Not used in this test")
+        deletionCalls += target
     }
 }
 
@@ -352,6 +378,30 @@ private fun threadsPage() = UserThreadsPage(
     currentPage = 1,
     hasMore = false,
     visibility = UserContentVisibility.Visible,
+)
+
+private val profileThread = ThreadSummary(
+    id = 22,
+    forumId = 11,
+    title = "Profile thread",
+    author = targetUser,
+    forumName = "test",
+    replyCount = 0,
+    viewCount = 0,
+    firstPostId = 33uL,
+    blocks = emptyList(),
+)
+
+private val deletionTarget = OwnThreadDeletionTarget(
+    forumId = 11,
+    forumName = "test",
+    threadId = 22,
+    firstPostId = 33uL,
+)
+
+private fun threadsPageWithDeletionTarget() = threadsPage().copy(
+    threads = listOf(profileThread),
+    deletionTargetsByThreadId = mapOf(profileThread.id to deletionTarget),
 )
 
 private fun relationshipPage() = UserRelationshipPage(
