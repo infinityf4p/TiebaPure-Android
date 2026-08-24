@@ -9,16 +9,26 @@ import okhttp3.Request
 private const val MESSAGE_CLIENT_VERSION = "8.2.2"
 
 object TiebaReadRequestFactory {
-    fun followedForums(account: Account, builder: TiebaRequestBuilder): Request = builder.formRequest(
-        endpoint = TiebaEndpoint.FollowedForums,
-        fields = mapOf(
+    fun followedForums(account: Account, page: Int, builder: TiebaRequestBuilder): Request {
+        val cuid = builder.device.miniCuid
+        val fields = mapOf(
             "BDUSS" to account.bduss,
-            "stoken" to account.stoken,
-            "user_id" to account.uid,
-            "_client_version" to "11.10.8.6",
-        ),
-        headers = mapOf("User-Agent" to "bdtb for Android 11.10.8.6"),
-    )
+            "_client_type" to "2",
+            "_client_version" to TiebaClientVersion.V12.value,
+            "cuid" to cuid,
+            "cuid_galaxy2" to cuid,
+            "net_type" to "1",
+            "friend_uid" to account.uid,
+            "page_no" to TiebaRequestValuePolicy.page(page).toString(),
+            "page_size" to FOLLOWED_FORUMS_PAGE_SIZE.toString(),
+        )
+        return builder.formRequest(
+            endpoint = TiebaEndpoint.FollowedForums,
+            fields = fields,
+            headers = mapOf("User-Agent" to "bdtb for Android ${TiebaClientVersion.V12.value}"),
+            signingSecret = TiebaFormSigner.DEFAULT_SECRET,
+        )
+    }
 
     fun forumThreads(
         forumName: String,
@@ -190,4 +200,6 @@ object TiebaReadRequestFactory {
         "Pragma" to "no-cache",
         "User-Agent" to "tieba/${TiebaClientVersion.V22.value}",
     )
+
+    internal const val FOLLOWED_FORUMS_PAGE_SIZE = 50
 }

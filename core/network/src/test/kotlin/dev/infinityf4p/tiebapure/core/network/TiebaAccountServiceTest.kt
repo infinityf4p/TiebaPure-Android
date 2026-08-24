@@ -3,6 +3,7 @@ package dev.infinityf4p.tiebapure.core.network
 import dev.infinityf4p.tiebapure.core.model.BaiduWebCredentials
 import dev.infinityf4p.tiebapure.core.model.MessageKind
 import dev.infinityf4p.tiebapure.core.model.UserRelationshipKind
+import java.net.URLDecoder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -10,9 +11,48 @@ import kotlin.test.assertFalse
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 
 class TiebaAccountServiceTest {
+    @Test
+    fun followedForumsLoadsEveryPageAndDeduplicatesForums() = withServer { server, client ->
+        server.enqueue(MockResponse.Builder().body(
+            """{"error_code":"0","has_more":"1","forum_list":{"non-gconforum":[{"id":"1","name":"first","avatar":"http://example.com/first.png"}],"gconforum":[{"id":"2","name":"circle"}]}}""",
+        ).build())
+        server.enqueue(MockResponse.Builder().body(
+            """{"error_code":"0","has_more":"0","forum_list":{"non-gconforum":[{"id":"2","name":"circle"},{"id":"3","name":"last"}],"gconforum":[]}}""",
+        ).build())
+        val service = DefaultTiebaAccountService(TiebaTransport(client), testRequestBuilder())
+
+        val forums = runBlocking { service.followedForums(testAccount()) }
+
+        assertEquals(listOf(1L, 2L, 3L), forums.map { it.id })
+        assertEquals(listOf("first", "circle", "last"), forums.map { it.name })
+        assertEquals("https://example.com/first.png", forums.first().avatarUrl)
+        assertEquals(2, server.requestCount)
+        val requests = List(2) { server.takeRequest() }
+        assertEquals(
+            listOf("/c/f/forum/like", "/c/f/forum/like"),
+            requests.map { it.url.encodedPath },
+        )
+        assertEquals(listOf("1", "2"), requests.map { it.formFields()["page_no"] })
+    }
+
+    @Test
+    fun followedForumsDoesNotReturnPartialResultsWhenLaterPageFails() = withServer { server, client ->
+        server.enqueue(MockResponse.Builder().body(
+            """{"error_code":"0","has_more":"1","forum_list":{"non-gconforum":[{"id":"1","name":"first"}]}}""",
+        ).build())
+        server.enqueue(MockResponse.Builder().body("not-json").build())
+        val service = DefaultTiebaAccountService(TiebaTransport(client), testRequestBuilder())
+
+        assertFailsWith<TiebaNetworkException.Decode> {
+            runBlocking { service.followedForums(testAccount()) }
+        }
+        assertEquals(2, server.requestCount)
+    }
+
     @Test
     fun loginCombinesClientIdentityAndInitializedNickname() = withServer { server, client ->
         server.enqueue(MockResponse.Builder().body(
@@ -118,4 +158,11 @@ class TiebaAccountServiceTest {
             block(server, client)
         }
     }
+}
+
+private fun RecordedRequest.formFields(): Map<String, String> = requireNotNull(body).utf8().split('&').associate { pair ->
+    val separator = pair.indexOf('=')
+    require(separator >= 0) { "Malformed form field" }
+    URLDecoder.decode(pair.substring(0, separator), Charsets.UTF_8) to
+        URLDecoder.decode(pair.substring(separator + 1), Charsets.UTF_8)
 }

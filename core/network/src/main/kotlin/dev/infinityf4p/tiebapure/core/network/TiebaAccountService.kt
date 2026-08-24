@@ -86,9 +86,24 @@ class DefaultTiebaAccountService(
         )
     }
 
-    override suspend fun followedForums(account: Account): List<Forum> = TiebaAccountJsonMapper.followedForums(
-        transport.text(TiebaReadRequestFactory.followedForums(account, requestBuilder)),
-    )
+    override suspend fun followedForums(account: Account): List<Forum> {
+        val forums = linkedMapOf<Long, Forum>()
+        var page = 1
+        while (true) {
+            val result = TiebaAccountJsonMapper.followedForums(
+                transport.text(TiebaReadRequestFactory.followedForums(account, page, requestBuilder)),
+            )
+            val previousSize = forums.size
+            result.forums.forEach { forums.putIfAbsent(it.id, it) }
+            if (!result.hasMore) return forums.values.toList()
+            if (forums.size == previousSize) {
+                throw TiebaNetworkException.Decode(
+                    IllegalStateException("Followed forum pagination made no progress on page $page"),
+                )
+            }
+            page += 1
+        }
+    }
 
     override suspend fun relationships(
         account: Account?, userId: Long, kind: UserRelationshipKind, page: Int,

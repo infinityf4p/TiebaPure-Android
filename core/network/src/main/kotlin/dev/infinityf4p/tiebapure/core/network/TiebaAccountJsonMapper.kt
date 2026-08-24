@@ -24,6 +24,11 @@ import kotlinx.serialization.json.contentOrNull
 internal object TiebaAccountJsonMapper {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    data class FollowedForumsPage(
+        val forums: List<Forum>,
+        val hasMore: Boolean,
+    )
+
     data class ClientLogin(
         val uid: String,
         val name: String,
@@ -77,14 +82,21 @@ internal object TiebaAccountJsonMapper {
         return root.string("tbs").trim().ifEmpty { throw TiebaMutationException.MissingTbs }
     }
 
-    fun followedForums(payload: String): List<Forum> {
+    fun followedForums(payload: String): FollowedForumsPage {
         val root = root(payload)
         validate(root.int("error_code"), root.string("error_msg"))
-        return root.array("forum_info").objects().mapNotNull { item ->
+        val forumList = root.obj("forum_list")
+        val items = forumList?.let { it.array("non-gconforum") + it.array("gconforum") }.orEmpty()
+        val forums = items.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
             val id = item.long("forum_id")
-            val name = item.string("forum_name")
-            if (id <= 0 || name.isBlank()) null else Forum(id, name, name, item.string("avatar").ifBlank { null })
+                .takeIf { it > 0 }
+                ?: item.long("id").takeIf { it > 0 }
+                ?: return@mapNotNull null
+            val name = firstNonBlank(item.string("forum_name"), item.string("name"))
+            if (name.isBlank()) null else Forum(id, name, name, TiebaRemoteUrl.normalize(item.string("avatar")))
         }
+        return FollowedForumsPage(forums, root.int("has_more") != 0)
     }
 
     fun relationships(payload: String, kind: UserRelationshipKind, requestedPage: Int): UserRelationshipPage {
