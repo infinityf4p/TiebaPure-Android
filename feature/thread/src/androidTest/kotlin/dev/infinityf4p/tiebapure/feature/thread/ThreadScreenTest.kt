@@ -190,6 +190,39 @@ class ThreadScreenTest {
     }
 
     @Test
+    fun oneNestedReplyCanOpenDetails() = assertNestedRepliesCanOpenDetails(1)
+
+    @Test
+    fun twoNestedRepliesCanOpenDetails() = assertNestedRepliesCanOpenDetails(2)
+
+    @Test
+    fun threeNestedRepliesCanOpenDetails() = assertNestedRepliesCanOpenDetails(3)
+
+    private fun assertNestedRepliesCanOpenDetails(count: Int) {
+        val parent = replyPost(
+            id = 2uL,
+            floor = 2,
+            previewSubposts = (1..count).map { index -> subpost(index.toULong()) },
+        )
+        var openedPostId: ULong? = null
+        composeRule.setContent {
+            TiebaPureTheme {
+                TestThreadScreen(
+                    state = threadState(posts = listOf(parent)),
+                    onOpenSubposts = { openedPostId = it.id },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看全部${count}条回复")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.runOnIdle { assertEquals(parent.id, openedPostId) }
+    }
+
+    @Test
     fun replyDisabledContentReachesThreadSafeAreaBottomWithoutGrayInsetStrip() {
         composeRule.setContent {
             TiebaPureTheme {
@@ -241,6 +274,7 @@ private fun TestThreadScreen(
     onRetry: () -> Unit = {},
     onShare: () -> Unit = {},
     onSave: (() -> Unit)? = null,
+    onOpenSubposts: (Post) -> Unit = {},
 ) {
     ThreadScreen(
         state = state,
@@ -257,7 +291,7 @@ private fun TestThreadScreen(
         onLinkClick = {},
         onShare = onShare,
         onSave = onSave,
-        onOpenSubposts = {},
+        onOpenSubposts = onOpenSubposts,
         onCloseSubposts = {},
         onLoadMoreSubposts = {},
         onRetrySubposts = {},
