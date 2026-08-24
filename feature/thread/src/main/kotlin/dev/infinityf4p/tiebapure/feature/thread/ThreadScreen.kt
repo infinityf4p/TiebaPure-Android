@@ -97,7 +97,7 @@ data class ThreadCapabilities(
     val canCollect: Boolean = true,
     val canRefresh: Boolean = true,
     val canFilterReplies: Boolean = true,
-    val alwaysShowSubpostOpenAction: Boolean = false,
+    val alwaysShowSubpostOpenAction: Boolean = true,
 )
 
 private data class GallerySelection(val images: List<ImageContent>, val index: Int)
