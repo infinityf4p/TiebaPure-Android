@@ -145,7 +145,7 @@ class UserProfileViewModel internal constructor(
         val optimistic = profile.withFollow(target)
         _uiState.update { it.copy(profile = optimistic, isMutatingFollow = true, actionError = null) }
         modelScope.launch {
-            runCatching { repository.setFollow(user, target) }
+            runCatching { repository.setFollow(profile.user, target) }
                 .onSuccess { followed ->
                     _uiState.update { current ->
                         val value = current.profile ?: return@update current.copy(isMutatingFollow = false)

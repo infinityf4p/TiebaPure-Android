@@ -111,6 +111,27 @@ class UserProfileViewModelTest {
         repository.threadCalls.single().result.complete(threadsPage())
         assertFalse(viewModel.uiState.value.isBusy)
     }
+
+    @Test
+    fun followUsesResolvedProfileUserWhenNavigationUserHasNoPortrait() = withModelScope { scope ->
+        val navigationUser = targetUser.copy(portrait = "")
+        val resolvedUser = navigationUser.copy(portrait = "resolved-portrait")
+        val repository = ControllableUserProfileRepository()
+        val viewModel = UserProfileViewModel(navigationUser, repository, scope)
+
+        repository.profileCalls.single().result.complete(profile().copy(user = resolvedUser))
+        repository.threadCalls.single().result.complete(threadsPage())
+        viewModel.toggleFollow()
+
+        val call = repository.followCalls.single()
+        assertEquals(resolvedUser, call.user)
+        assertTrue(call.followed)
+
+        call.result.complete(true)
+
+        assertTrue(viewModel.uiState.value.profile?.isFollowed == true)
+        assertFalse(viewModel.uiState.value.isMutatingFollow)
+    }
 }
 
 class UserRelationshipsViewModelTest {
@@ -230,8 +251,15 @@ private class ControllableUserProfileRepository : UserProfileRepository {
         val result: CompletableDeferred<UserThreadsPage> = CompletableDeferred(),
     )
 
+    data class FollowCall(
+        val user: UserSummary,
+        val followed: Boolean,
+        val result: CompletableDeferred<Boolean> = CompletableDeferred(),
+    )
+
     val profileCalls = mutableListOf<ProfileCall>()
     val threadCalls = mutableListOf<ThreadCall>()
+    val followCalls = mutableListOf<FollowCall>()
 
     override suspend fun loadProfile(user: UserSummary): UserProfile {
         val call = ProfileCall(user)
@@ -245,8 +273,11 @@ private class ControllableUserProfileRepository : UserProfileRepository {
         return call.result.await()
     }
 
-    override suspend fun setFollow(user: UserSummary, followed: Boolean): Boolean =
-        error("Not used in this test")
+    override suspend fun setFollow(user: UserSummary, followed: Boolean): Boolean {
+        val call = FollowCall(user, followed)
+        followCalls += call
+        return call.result.await()
+    }
 
     override suspend fun deleteOwnThread(target: OwnThreadDeletionTarget) {
         error("Not used in this test")
