@@ -2,8 +2,23 @@
 
 [![Android CI](https://github.com/infinityf4p/TiebaPure-Android/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/infinityf4p/TiebaPure-Android/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/infinityf4p/TiebaPure-Android)](https://github.com/infinityf4p/TiebaPure-Android/releases/latest)
 
 基于 Kotlin 与 Jetpack Compose 的第三方百度贴吧客户端。与 [TiebaPure-iOS](https://github.com/infinityf4p/TiebaPure-iOS) 使用同一套最小 Protobuf 协议定义，导航、返回手势、媒体播放、存储和自适应布局遵循 Android 平台惯例。
+
+## 截图
+
+<p align="center">
+  <img src="docs/images/home-logged-out.png" width="31%" alt="未登录访客首页" />
+  <img src="docs/images/thread-logged-out.png" width="31%" alt="未登录访客帖子详情" />
+  <img src="docs/images/replies-logged-out.png" width="31%" alt="未登录访客楼中楼" />
+</p>
+
+<p align="center">
+  <img src="docs/images/search-logged-out.png" width="31%" alt="未登录访客搜索结果" />
+  <img src="docs/images/favorites-logged-in.png" width="31%" alt="登录后的帖子收藏" />
+  <img src="docs/images/settings-logged-in.png" width="31%" alt="登录后的设置页面" />
+</p>
 
 ## 功能
 
@@ -28,51 +43,24 @@
 **本机功能**
 
 - 关键词 / 用户 / 贴吧屏蔽
-- 浏览历史与阅读位置
-- 外观可跟随系统或手动选择浅色 / 深色
+- 浏览历史支持搜索、筛选和批量管理，上限 500 条；阅读位置自动恢复，上限 500 条
+- 帖子本地保存与离线阅读，支持离线媒体、搜索、新回复检查和备份导入导出
+- 手机、平板自适应布局，外观可跟随系统或手动选择浅色 / 深色，支持导入 TTF / OTF 阅读字体
 - 深链接 `tiebapure://thread/...`、`tiebapure://forum/...`、`tiebapure://search/...`，以及 `https://tieba.baidu.com/p/...`
+
+## 下载
+
+[Releases](https://github.com/infinityf4p/TiebaPure-Android/releases/latest) 提供可直接安装的签名 APK，要求 Android 6.0（API 23）或更高版本。
 
 ## 构建
 
 已验证的开发环境为 JDK 17、Android SDK 36 和 Build Tools 36.0.0。
 
 ```bash
-./gradlew test lintRelease assembleDebug assembleRelease bundleRelease
+./gradlew assembleDebug
 ```
 
-Debug 和 Release APK 输出在 `app/build/outputs/apk/`，Release AAB 输出在 `app/build/outputs/bundle/release/`。Release 会开启 R8 压缩、优化、混淆和资源收缩。未配置签名时，Gradle 会生成 **未签名** 的 Release APK / AAB，CI 不需要签名密钥。
-
-## 发布签名
-
-签名只从以下环境变量读取，四个必须同时设置或同时缺省；只配一部分会在配置阶段失败：
-
-- `TIEBAPURE_ANDROID_KEYSTORE`：keystore 路径
-- `TIEBAPURE_ANDROID_STORE_PASSWORD`：keystore 密码
-- `TIEBAPURE_ANDROID_KEY_ALIAS`：密钥别名
-- `TIEBAPURE_ANDROID_KEY_PASSWORD`：密钥密码
-
-```bash
-export TIEBAPURE_ANDROID_KEYSTORE="$HOME/.android/tiebapure-release.jks"
-export TIEBAPURE_ANDROID_STORE_PASSWORD='<store password>'
-export TIEBAPURE_ANDROID_KEY_ALIAS='tiebapure'
-export TIEBAPURE_ANDROID_KEY_PASSWORD='<key password>'
-./gradlew assembleRelease bundleRelease
-```
-
-签过名的 APK 是 `app/build/outputs/apk/release/app-release.apk`。四个变量都缺省时是 `app-release-unsigned.apk`。
-
-## 模块
-
-- `app`：应用容器、导航和依赖组装
-- `core:model`：与平台无关的领域模型和策略
-- `core:protocol`：由 `proto/` 生成的 lite Protobuf
-- `core:network`：HTTPS 传输、协议映射和贴吧接口
-- `core:data`：Room、DataStore、加密账号存储和仓库
-- `core:designsystem`：主题和可复用阅读 UI
-- `core:media`：图片浏览、受保护的远程媒体下载和 Media3 视频
-- `feature:*`：首页、进吧、搜索、帖子、账号、设置和发帖编辑器
-
-`proto/` 是两端共用的最小贴吧协议定义，只包含应用实际发送或读取的字段。修改字段编号或 wire 类型时，必须同时增加手写 wire fixture，并验证请求编码、响应解码和领域模型映射。iOS 客户端在 [TiebaPure-iOS](https://github.com/infinityf4p/TiebaPure-iOS) 中自行生成 Swift 产物。
+完整的测试、Release 构建、签名与项目结构说明见 [开发文档](docs/DEVELOPMENT.md)。
 
 ## 开源许可
 
