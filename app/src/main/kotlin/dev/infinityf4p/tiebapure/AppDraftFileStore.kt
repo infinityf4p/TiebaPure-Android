@@ -21,10 +21,14 @@ internal data class StoredDraftAttachment(
 /** Stores immutable draft attachment blobs outside SQLite; Room is the commit point. */
 internal class AppDraftFileStore private constructor(
     rawDirectory: File,
+    private val enforceOwnerOnlyPermissions: Boolean,
 ) {
     private val directory = rawDirectory.canonicalFile
 
-    constructor(context: Context) : this(File(context.filesDir, "content-drafts/v1"))
+    constructor(context: Context) : this(
+        rawDirectory = File(context.filesDir, "content-drafts/v1"),
+        enforceOwnerOnlyPermissions = true,
+    )
 
     init {
         prepareDirectory()
@@ -106,8 +110,10 @@ internal class AppDraftFileStore private constructor(
     private fun prepareDirectory() {
         if (!directory.exists()) check(directory.mkdirs()) { "无法创建草稿附件目录。" }
         check(directory.isDirectory && directory.canonicalPath == directory.absolutePath) { "草稿附件目录不安全。" }
-        check(directory.setReadable(false, false) && directory.setWritable(false, false) && directory.setExecutable(false, false))
-        check(directory.setReadable(true, true) && directory.setWritable(true, true) && directory.setExecutable(true, true))
+        if (enforceOwnerOnlyPermissions) {
+            check(directory.setReadable(false, false) && directory.setWritable(false, false) && directory.setExecutable(false, false))
+            check(directory.setReadable(true, true) && directory.setWritable(true, true) && directory.setExecutable(true, true))
+        }
     }
 
     private fun checkedFile(fileName: String): File {
@@ -118,8 +124,10 @@ internal class AppDraftFileStore private constructor(
     }
 
     private fun hardenFile(file: File) {
-        check(file.setReadable(false, false) && file.setWritable(false, false) && file.setExecutable(false, false))
-        check(file.setReadable(true, true) && file.setWritable(true, true))
+        if (enforceOwnerOnlyPermissions) {
+            check(file.setReadable(false, false) && file.setWritable(false, false) && file.setExecutable(false, false))
+            check(file.setReadable(true, true) && file.setWritable(true, true))
+        }
     }
 
     private fun syncDirectoryBestEffort() {
@@ -143,7 +151,11 @@ internal class AppDraftFileStore private constructor(
         private val TEMP_FILE_NAME_PATTERN = Regex("\\.[0-9a-f-]{36}\\.tmp")
         private val SHA256_PATTERN = Regex("[0-9a-f]{64}")
 
-        fun forTests(directory: File): AppDraftFileStore = AppDraftFileStore(directory)
+        fun forTests(directory: File): AppDraftFileStore = AppDraftFileStore(
+            rawDirectory = directory,
+            enforceOwnerOnlyPermissions = !System.getProperty("os.name").orEmpty()
+                .startsWith("Windows", ignoreCase = true),
+        )
 
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
     }
