@@ -8,17 +8,36 @@
 
 ## 截图
 
-<p align="center">
-  <img src="docs/images/home-logged-out.png" width="31%" alt="未登录访客首页" />
-  <img src="docs/images/thread-logged-out.png" width="31%" alt="未登录访客帖子详情" />
-  <img src="docs/images/replies-logged-out.png" width="31%" alt="未登录访客楼中楼" />
-</p>
-
-<p align="center">
-  <img src="docs/images/search-logged-out.png" width="31%" alt="未登录访客搜索结果" />
-  <img src="docs/images/favorites-logged-in.png" width="31%" alt="登录后的帖子收藏" />
-  <img src="docs/images/settings-logged-in.png" width="31%" alt="登录后的设置页面" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/images/home-logged-out.png" width="100%" alt="未登录访客首页" /><br />
+      <sub>未登录访客首页</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/images/thread-logged-out.png" width="100%" alt="未登录访客帖子详情" /><br />
+      <sub>未登录访客帖子详情</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/images/replies-logged-out.png" width="100%" alt="未登录访客楼中楼" /><br />
+      <sub>未登录访客楼中楼</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/images/search-logged-out.png" width="100%" alt="未登录访客搜索结果" /><br />
+      <sub>未登录访客搜索结果</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/images/favorites-logged-in.png" width="100%" alt="登录后的帖子收藏" /><br />
+      <sub>登录后的帖子收藏</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/images/settings-logged-in.png" width="100%" alt="登录后的设置页面" /><br />
+      <sub>登录后的设置页面</sub>
+    </td>
+  </tr>
+</table>
 
 ## 功能
 
