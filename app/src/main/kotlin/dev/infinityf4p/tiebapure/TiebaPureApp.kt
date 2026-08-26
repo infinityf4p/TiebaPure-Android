@@ -104,6 +104,8 @@ import dev.infinityf4p.tiebapure.feature.account.BrowsingHistoryRoute
 import dev.infinityf4p.tiebapure.feature.account.BrowsingHistoryViewModel
 import dev.infinityf4p.tiebapure.feature.account.EditProfileRoute
 import dev.infinityf4p.tiebapure.feature.account.EditProfileViewModel
+import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesRoute
+import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesViewModel
 import dev.infinityf4p.tiebapure.feature.account.LoginRoute
 import dev.infinityf4p.tiebapure.feature.account.LoginViewModel
 import dev.infinityf4p.tiebapure.feature.account.MeRoute
@@ -202,6 +204,7 @@ private object Routes {
     const val SavedThread = "saved-thread/{threadId}"
     const val Favorites = "favorites"
     const val Messages = "messages"
+    const val FollowingUpdates = "following-updates"
     const val User = "user/{userId}/{userName}"
     const val Relationships = "relationships/{userId}/{userName}/{kind}"
     const val EditProfile = "edit-profile"
@@ -648,6 +651,7 @@ private fun AppNavigationHost(
                                 )
                             } ?: run { message = "请先登录贴吧账号。" }
                             AccountDestination.FollowedForums -> onSelectRoot(RootDestination.Forums)
+                            AccountDestination.FollowingUpdates -> destinationNavController.navigate(Routes.FollowingUpdates)
                             AccountDestination.ThreadFavorites -> destinationNavController.navigate(Routes.Favorites)
                             AccountDestination.BrowsingHistory -> destinationNavController.navigate(Routes.History)
                             AccountDestination.Settings -> destinationNavController.navigate(Routes.Settings)
@@ -872,6 +876,24 @@ private fun AppNavigationHost(
                     onOpenMessage = { item ->
                         item.threadId?.let { navController.navigate(threadRoute(it, item.postId)) }
                             ?: run { message = "这条消息没有可打开的帖子。" }
+                    },
+                )
+            }
+
+            composable(Routes.FollowingUpdates) {
+                val updates: FollowingUpdatesViewModel = viewModel(
+                    key = "following-updates-$accountSessionKey",
+                    factory = factory {
+                        FollowingUpdatesViewModel(account, container.accountFeatures.followingUpdates)
+                    },
+                )
+                FollowingUpdatesRoute(
+                    viewModel = updates,
+                    onBack = { navController.popBackStack() },
+                    onLogin = { navController.navigate(Routes.Login) },
+                    onOpenThread = { thread ->
+                        container.featureRepositories.rememberThreadSummary(thread)
+                        navController.navigate(threadRoute(thread.id))
                     },
                 )
             }

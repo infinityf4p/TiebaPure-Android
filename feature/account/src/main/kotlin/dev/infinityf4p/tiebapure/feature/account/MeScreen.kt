@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DynamicFeed
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
@@ -44,6 +45,7 @@ enum class AccountDestination {
     Messages,
     FollowedUsers,
     FollowedForums,
+    FollowingUpdates,
     ThreadFavorites,
     BrowsingHistory,
     Settings,
@@ -108,6 +110,9 @@ fun MeScreen(
                         }
                         ReaderNavigationRow("关注的吧", icon = Icons.Outlined.StarBorder) {
                             onOpen(AccountDestination.FollowedForums)
+                        }
+                        ReaderNavigationRow("关注更新", icon = Icons.Outlined.DynamicFeed) {
+                            onOpen(AccountDestination.FollowingUpdates)
                         }
                     }
                 }
