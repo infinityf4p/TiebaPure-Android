@@ -1,6 +1,7 @@
 package dev.infinityf4p.tiebapure.feature.search
 
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
+import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import kotlinx.coroutines.CancellationException
@@ -24,10 +25,10 @@ class SearchViewModelTest {
         viewModel.submit()
         assertTrue(viewModel.uiState.value.isBusy)
 
-        viewModel.selectFilter(SearchFilter.Threads)
+        viewModel.selectFilter(SearchFilter.Forums)
 
         assertEquals(2, repository.calls.size)
-        assertEquals(SearchFilter.Threads, repository.calls.last().filter)
+        assertEquals(SearchFilter.Forums, repository.calls.last().filter)
         assertTrue(repository.calls.first().cancelled.isCompleted)
 
         repository.calls.last().result.complete(page(threadId = 2))
@@ -115,11 +116,30 @@ class SearchViewModelTest {
         assertFalse(viewModel.uiState.value.errorMessage.orEmpty().contains("tieba.baidu.com"))
     }
 
-    private fun withViewModel(block: (SearchViewModel, ControllableSearchRepository) -> Unit) {
+    @Test
+    fun forumOnlySearchKeepsExistingFiltersAndRejectsForumSearch() = withViewModel(
+        searchScope = SearchScope.ForumOnly(Forum(1, "测试", "测试吧")),
+    ) { viewModel, repository ->
+        assertEquals(SearchFilter.All, viewModel.uiState.value.filter)
+
+        viewModel.updateInput("关键词")
+        viewModel.submit()
+        assertEquals(SearchFilter.All, repository.calls.single().filter)
+
+        viewModel.selectFilter(SearchFilter.Forums)
+
+        assertEquals(SearchFilter.All, viewModel.uiState.value.filter)
+        assertEquals(1, repository.calls.size)
+    }
+
+    private fun withViewModel(
+        searchScope: SearchScope = SearchScope.Global,
+        block: (SearchViewModel, ControllableSearchRepository) -> Unit,
+    ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         try {
             val repository = ControllableSearchRepository()
-            block(SearchViewModel(repository, scope), repository)
+            block(SearchViewModel(repository, scope, searchScope), repository)
         } finally {
             scope.cancel()
         }

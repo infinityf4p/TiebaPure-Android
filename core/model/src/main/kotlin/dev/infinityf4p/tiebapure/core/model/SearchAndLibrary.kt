@@ -1,6 +1,6 @@
 package dev.infinityf4p.tiebapure.core.model
 
-enum class SearchKind { Threads, Users }
+enum class SearchKind { Threads, Forums, Users }
 
 data class SearchThreadResult(
     val thread: ThreadSummary,
@@ -11,6 +11,14 @@ data class SearchThreadResult(
 
 data class SearchUserResult(
     val user: UserSummary,
+    val isExactMatch: Boolean,
+)
+
+data class SearchForumResult(
+    val forum: Forum,
+    val memberCount: Long,
+    val postCount: Long,
+    val introduction: String,
     val isExactMatch: Boolean,
 )
 

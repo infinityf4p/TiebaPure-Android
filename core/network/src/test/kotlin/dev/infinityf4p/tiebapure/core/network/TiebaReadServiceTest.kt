@@ -177,6 +177,68 @@ class TiebaReadServiceTest {
     }
 
     @Test
+    fun forumSearchFixtureCombinesExactAndFuzzyResultsWithoutDuplicates() {
+        val page = TiebaJsonMapper.searchForums(
+            """{
+              "no":0,
+              "data":{
+                "pn":"2",
+                "has_more":"1",
+                "exactMatch":{
+                  "forum_id":"1458134","forum_name":"android","forum_name_show":"Android",
+                  "avatar":"http://example.com/android.jpg","concern_num_ori":"1605434",
+                  "post_num_ori":34507360,"intro":"安卓数码产品讨论区"
+                },
+                "fuzzyMatch":[
+                  {"forum_id":"1458134","forum_name":"android"},
+                  {"forum_id":1957107,"forum_name":"android开发","concern_num_ori":225826,
+                   "post_num_ori":"948710","slogan":"Android 开发交流"}
+                ]
+              }
+            }""".trimIndent(),
+        )
+
+        assertEquals(listOf(1458134L, 1957107L), page.results.map { it.forum.id })
+        assertEquals(listOf(true, false), page.results.map { it.isExactMatch })
+        assertEquals("Android吧", page.results.first().forum.displayName)
+        assertEquals("https://example.com/android.jpg", page.results.first().forum.avatarUrl)
+        assertEquals(1_605_434, page.results.first().memberCount)
+        assertEquals(34_507_360, page.results.first().postCount)
+        assertEquals("安卓数码产品讨论区", page.results.first().introduction)
+        assertEquals("Android 开发交流", page.results.last().introduction)
+        assertEquals(2, page.currentPage)
+        assertTrue(page.hasMore)
+    }
+
+    @Test
+    fun forumSearchRequestExecutesAndDecodesResults() = withServer { server, client ->
+        server.enqueue(MockResponse.Builder().body(
+            """{
+              "no":0,
+              "data":{
+                "pn":1,"has_more":0,"exactMatch":[],
+                "fuzzyMatch":[{
+                  "forum_id":7160,"forum_name":"同济大学","avatar":"https://example.com/tongji.jpg",
+                  "concern_num_ori":308524,"post_num_ori":4664391
+                }]
+              }
+            }""".trimIndent(),
+        ).build())
+
+        val service = DefaultTiebaReadService(TiebaTransport(client), testRequestBuilder())
+        val page = runBlocking { service.searchForums("同济", 1) }
+        val request = server.takeRequest()
+
+        assertEquals("/mo/q/search/forum", request.url.encodedPath)
+        assertEquals("同济", request.url.queryParameter("word"))
+        assertEquals("1", request.url.queryParameter("pn"))
+        assertEquals(7160, page.results.single().forum.id)
+        assertEquals(308_524, page.results.single().memberCount)
+        assertEquals(4_664_391, page.results.single().postCount)
+        assertEquals("", page.results.single().introduction)
+    }
+
+    @Test
     fun searchReplyIdDoesNotMasqueradeAsThreadFirstPostId() {
         val page = TiebaJsonMapper.searchThreads(
             """{"no":0,"data":{"current_page":1,"has_more":0,"post_list":[{"tid":"42","pid":"99","title":"主题","content":"命中的回复"}]}}""",

@@ -7,6 +7,7 @@ import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.Post
 import dev.infinityf4p.tiebapure.core.model.SearchPage
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.SearchThreadResult
 import dev.infinityf4p.tiebapure.core.model.SearchUserResult
 import dev.infinityf4p.tiebapure.core.model.SubpostPage
@@ -89,6 +90,8 @@ class TiebaRepositoriesTest {
         override suspend fun searchThreads(
             keyword: String, page: Int, sortType: Int, filterType: Int, forumName: String?,
         ) = SearchPage<SearchThreadResult>(emptyList(), page, false)
+        override suspend fun searchForums(keyword: String, page: Int) =
+            SearchPage<SearchForumResult>(emptyList(), page, false)
         override suspend fun searchUsers(keyword: String) = SearchPage<SearchUserResult>(emptyList(), 1, false)
         override suspend fun userProfile(account: Account?, user: UserSummary) = UserProfile(
             user, false, false, "", "", UserProfileSex.Unspecified, null, "", null,

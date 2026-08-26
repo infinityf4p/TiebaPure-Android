@@ -5,6 +5,7 @@ import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.SearchPage
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.SearchThreadResult
 import dev.infinityf4p.tiebapure.core.model.SearchUserResult
 import dev.infinityf4p.tiebapure.core.model.SubpostPage
@@ -34,6 +35,7 @@ interface TiebaReadService {
     suspend fun searchThreads(
         keyword: String, page: Int, sortType: Int = 5, filterType: Int = 2, forumName: String? = null,
     ): SearchPage<SearchThreadResult>
+    suspend fun searchForums(keyword: String, page: Int): SearchPage<SearchForumResult>
     suspend fun searchUsers(keyword: String): SearchPage<SearchUserResult>
     suspend fun userProfile(account: Account?, user: UserSummary): UserProfile
     suspend fun userThreads(account: Account?, userId: Long, page: Int): UserThreadsPage
@@ -118,6 +120,11 @@ class DefaultTiebaReadService(
 
     override suspend fun searchUsers(keyword: String): SearchPage<SearchUserResult> =
         TiebaJsonMapper.searchUsers(transport.text(TiebaReadRequestFactory.searchUser(keyword, requestBuilder)))
+
+    override suspend fun searchForums(keyword: String, page: Int): SearchPage<SearchForumResult> =
+        TiebaJsonMapper.searchForums(
+            transport.text(TiebaReadRequestFactory.searchForums(keyword, page, requestBuilder)),
+        )
 
     override suspend fun userProfile(account: Account?, user: UserSummary): UserProfile {
         val context = protoFactory.userProfile(account, user)

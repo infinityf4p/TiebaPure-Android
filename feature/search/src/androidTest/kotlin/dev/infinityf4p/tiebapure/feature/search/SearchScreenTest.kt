@@ -13,7 +13,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import dev.infinityf4p.tiebapure.core.designsystem.TiebaPureTheme
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
+import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ImageContent
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import org.junit.Assert.assertEquals
@@ -188,5 +190,79 @@ class SearchScreenTest {
         composeRule.onNodeWithText("测试吧").assertIsDisplayed()
         composeRule.onNodeWithText("作者").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("点赞，当前6个赞", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun forumSearchShowsMetadataOpensForumAndHidesThreadSort() {
+        var openedForum: Forum? = null
+        val forum = Forum(
+            id = 7160,
+            name = "同济大学",
+            displayName = "同济大学吧",
+            avatarUrl = "https://example.com/tongji.jpg",
+        )
+        composeRule.setContent {
+            TiebaPureTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        input = "同济",
+                        submittedKeyword = "同济",
+                        filter = SearchFilter.Forums,
+                        items = listOf(
+                            SearchItem.ForumResult(
+                                SearchForumResult(
+                                    forum = forum,
+                                    memberCount = 536_000,
+                                    postCount = 1_284_000,
+                                    introduction = "同济学子和谐有爱的网络大家庭",
+                                    isExactMatch = false,
+                                ),
+                            ),
+                        ),
+                        hasMore = false,
+                    ),
+                    callbacks = SearchCallbacks(onOpenForum = { openedForum = it }),
+                    onInputChanged = {}, onSubmit = {}, onClearQuery = {}, onSelectHistory = {},
+                    onRemoveHistory = {}, onClearHistory = {}, onSelectFilter = {}, onSelectSort = {},
+                    onRefresh = {}, onLoadMore = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("主题").assertIsDisplayed()
+        composeRule.onNodeWithText("吧").assertIsDisplayed()
+        composeRule.onNodeWithText("全部").assertIsDisplayed()
+        composeRule.onNodeWithText("最新").assertDoesNotExist()
+        composeRule.onNodeWithText("同济大学吧").assertIsDisplayed()
+        composeRule.onNodeWithText("53.6 万关注 · 128.4 万帖子").assertIsDisplayed()
+        composeRule.onNodeWithText("同济学子和谐有爱的网络大家庭").assertIsDisplayed()
+        composeRule.onNodeWithTag("search-forum-7160").performClick()
+        composeRule.runOnIdle { assertEquals(forum, openedForum) }
+    }
+
+    @Test
+    fun forumOnlySearchDoesNotExposeForumFilter() {
+        composeRule.setContent {
+            TiebaPureTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        scope = SearchScope.ForumOnly(Forum(1, "测试", "测试吧")),
+                        input = "关键词",
+                        submittedKeyword = "关键词",
+                        items = emptyList(),
+                        hasMore = false,
+                    ),
+                    callbacks = SearchCallbacks(),
+                    onInputChanged = {}, onSubmit = {}, onClearQuery = {}, onSelectHistory = {},
+                    onRemoveHistory = {}, onClearHistory = {}, onSelectFilter = {}, onSelectSort = {},
+                    onRefresh = {}, onLoadMore = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("全部").assertIsDisplayed()
+        composeRule.onNodeWithText("主题").assertIsDisplayed()
+        composeRule.onNodeWithText("吧").assertDoesNotExist()
+        composeRule.onNodeWithText("最新").assertIsDisplayed()
     }
 }

@@ -5,6 +5,7 @@ import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.SearchPage
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.SearchThreadResult
 import dev.infinityf4p.tiebapure.core.model.SearchUserResult
 import dev.infinityf4p.tiebapure.core.model.SubpostPage
@@ -61,6 +62,7 @@ interface SearchRepository {
         forumName: String? = null,
     ): SearchPage<SearchThreadResult>
 
+    suspend fun forums(keyword: String, page: Int): SearchPage<SearchForumResult>
     suspend fun users(keyword: String): SearchPage<SearchUserResult>
 }
 
@@ -115,6 +117,7 @@ class NetworkSearchRepository(private val service: TiebaReadService) : SearchRep
         forumName: String?,
     ) = service.searchThreads(keyword, page, sortType, filterType, forumName)
 
+    override suspend fun forums(keyword: String, page: Int) = service.searchForums(keyword, page)
     override suspend fun users(keyword: String) = service.searchUsers(keyword)
 }
 
