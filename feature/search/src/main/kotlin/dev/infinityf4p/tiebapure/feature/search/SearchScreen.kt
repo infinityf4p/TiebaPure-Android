@@ -71,6 +71,7 @@ import dev.infinityf4p.tiebapure.core.media.RemoteImage
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
 import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ReaderMediaLoadingPolicy
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import java.text.SimpleDateFormat
@@ -218,7 +219,7 @@ private fun SearchResultsContent(
         LazyColumn(Modifier.fillMaxSize()) {
             item(key = "controls") {
                 ReaderSectionBand(Modifier.testTag("search-result-controls")) {
-                    SearchControls(state.filter, state.sort, onSelectFilter, onSelectSort)
+                    SearchControls(state.scope, state.filter, state.sort, onSelectFilter, onSelectSort)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -238,9 +239,13 @@ private fun SearchResultsContent(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Text(if (state.hasMore) "当前页暂无可显示结果" else "没有结果", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "可调整范围或排序后重试。",
+                            if (state.filter == SearchFilter.Forums && !state.hasMore) "没有找到相关贴吧"
+                            else if (state.hasMore) "当前页暂无可显示结果" else "没有结果",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            if (state.filter == SearchFilter.Forums) "可尝试其他关键词。" else "可调整范围或排序后重试。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 8.dp),
@@ -258,6 +263,11 @@ private fun SearchResultsContent(
                         is SearchItem.UserResult -> SearchUserRow(
                             item.user,
                             callbacks.onOpenUser,
+                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                        is SearchItem.ForumResult -> SearchForumRow(
+                            item.result,
+                            callbacks.onOpenForum,
                             Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                         )
                     }
@@ -316,6 +326,7 @@ private fun EmptyPageContinuation(
 
 @Composable
 private fun SearchControls(
+    scope: SearchScope,
     filter: SearchFilter,
     sort: SearchSort,
     onSelectFilter: (SearchFilter) -> Unit,
@@ -326,7 +337,7 @@ private fun SearchControls(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SearchFilter.entries.forEach { item ->
+            scope.availableFilters.forEach { item ->
                 Box(
                     modifier = Modifier.height(48.dp).clickable { onSelectFilter(item) },
                     contentAlignment = Alignment.Center,
@@ -338,33 +349,42 @@ private fun SearchControls(
                         modifier = Modifier.height(32.dp),
                     ) {
                         Box(Modifier.padding(horizontal = 12.dp), Alignment.Center) {
-                            Text(if (item == SearchFilter.All) "全部" else "主题", style = MaterialTheme.typography.labelMedium)
+                            Text(item.title, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
             }
         }
         Spacer(Modifier.weight(1f))
-        var expanded by remember { mutableStateOf(false) }
-        Box {
-            Row(
-                modifier = Modifier.height(48.dp).clickable { expanded = true }.padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(sort.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Icon(Icons.Outlined.ArrowDropDown, null)
-            }
-            DropdownMenu(expanded, { expanded = false }) {
-                SearchSort.entries.reversed().forEach { item ->
-                    DropdownMenuItem(
-                        text = { Text(item.title) },
-                        onClick = { expanded = false; onSelectSort(item) },
-                    )
+        if (filter != SearchFilter.Forums) {
+            var expanded by remember { mutableStateOf(false) }
+            Box {
+                Row(
+                    modifier = Modifier.height(48.dp).clickable { expanded = true }.padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(sort.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Outlined.ArrowDropDown, null)
+                }
+                DropdownMenu(expanded, { expanded = false }) {
+                    SearchSort.entries.reversed().forEach { item ->
+                        DropdownMenuItem(
+                            text = { Text(item.title) },
+                            onClick = { expanded = false; onSelectSort(item) },
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+private val SearchFilter.title: String
+    get() = when (this) {
+        SearchFilter.Threads -> "主题"
+        SearchFilter.Forums -> "吧"
+        SearchFilter.All -> "全部"
+    }
 
 private val SearchSort.title: String
     get() = when (this) {
@@ -539,6 +559,63 @@ private fun SearchUserRow(
     }
 }
 
+@Composable
+private fun SearchForumRow(
+    result: SearchForumResult,
+    onOpen: (Forum) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ReaderCard(modifier = modifier.testTag("search-forum-${result.forum.id}")) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 88.dp)
+                .clickable { onOpen(result.forum) },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AvatarImage(
+                url = result.forum.avatarUrl,
+                name = result.forum.displayName,
+                modifier = Modifier.size(48.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    result.forum.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${compactForumSearchCount(result.memberCount)}关注 · " +
+                        "${compactForumSearchCount(result.postCount)}帖子",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                Text(
+                    result.introduction.ifBlank { "暂无简介" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+internal fun compactForumSearchCount(value: Long): String {
+    val normalized = value.coerceAtLeast(0L)
+    if (normalized < 10_000L) return normalized.toString()
+    val whole = normalized / 10_000L
+    val decimal = normalized % 10_000L / 1_000L
+    return if (decimal == 0L) "$whole 万" else "$whole.$decimal 万"
+}
+
 internal fun compactSearchThreadTime(
     epochSeconds: Long?,
     nowEpochSeconds: Long = System.currentTimeMillis() / 1_000,
@@ -564,6 +641,15 @@ private val previewSearchItems = listOf(
             replyCount = 18,
             viewCount = 90,
             blocks = listOf(ContentBlock.Text("筛选栏保持紧凑，并把范围和排序分列左右。")),
+        ),
+    ),
+    SearchItem.ForumResult(
+        SearchForumResult(
+            forum = Forum(1458134, "android", "android吧"),
+            memberCount = 1_605_434,
+            postCount = 34_507_360,
+            introduction = "数码综合讨论区，安卓数码产品讨论区。",
+            isExactMatch = true,
         ),
     ),
     SearchItem.UserResult(UserSummary(2, "sample", "示例用户", "")),

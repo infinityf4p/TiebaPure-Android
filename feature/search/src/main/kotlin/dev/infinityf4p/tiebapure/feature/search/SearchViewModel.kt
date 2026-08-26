@@ -3,6 +3,7 @@ package dev.infinityf4p.tiebapure.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import kotlinx.coroutines.CancellationException
@@ -19,10 +20,17 @@ sealed interface SearchScope {
     data class ForumOnly(val forum: Forum) : SearchScope
 }
 
-enum class SearchFilter(val protocolValue: Int) {
-    All(2),
+enum class SearchFilter(val protocolValue: Int?) {
     Threads(1),
+    Forums(null),
+    All(2),
 }
+
+internal val SearchScope.availableFilters: List<SearchFilter>
+    get() = when (this) {
+        SearchScope.Global -> listOf(SearchFilter.Threads, SearchFilter.Forums, SearchFilter.All)
+        is SearchScope.ForumOnly -> listOf(SearchFilter.All, SearchFilter.Threads)
+    }
 
 enum class SearchSort(val protocolValue: Int) {
     Oldest(0),
@@ -42,6 +50,10 @@ sealed interface SearchItem {
 
     data class UserResult(val user: UserSummary) : SearchItem {
         override val stableId: String = "user-${user.id}"
+    }
+
+    data class ForumResult(val result: SearchForumResult) : SearchItem {
+        override val stableId: String = "forum-${result.forum.id}"
     }
 }
 
@@ -71,7 +83,7 @@ data class SearchUiState(
     val input: String = "",
     val submittedKeyword: String = "",
     val history: List<String> = emptyList(),
-    val filter: SearchFilter = SearchFilter.All,
+    val filter: SearchFilter = scope.availableFilters.first(),
     val sort: SearchSort = SearchSort.Latest,
     val items: List<SearchItem> = emptyList(),
     val isInitialLoading: Boolean = false,
@@ -118,7 +130,8 @@ class SearchViewModel private constructor(
     internal constructor(
         repository: SearchRepository,
         coroutineScope: CoroutineScope,
-    ) : this(repository, SearchScope.Global, initialKeyword = "", coroutineScope)
+        scope: SearchScope = SearchScope.Global,
+    ) : this(repository, scope, initialKeyword = "", coroutineScope)
 
     private val _uiState = MutableStateFlow(
         SearchUiState(scope = scope, input = initialKeyword, submittedKeyword = initialKeyword.trim()),
@@ -196,7 +209,8 @@ class SearchViewModel private constructor(
     }
 
     fun selectFilter(value: SearchFilter) {
-        if (_uiState.value.filter == value) return
+        val current = _uiState.value
+        if (current.filter == value || value !in current.scope.availableFilters) return
         invalidateActiveRequest()
         _uiState.update {
             it.copy(
@@ -214,7 +228,7 @@ class SearchViewModel private constructor(
     }
 
     fun selectSort(value: SearchSort) {
-        if (_uiState.value.sort == value) return
+        if (_uiState.value.filter == SearchFilter.Forums || _uiState.value.sort == value) return
         invalidateActiveRequest()
         _uiState.update {
             it.copy(

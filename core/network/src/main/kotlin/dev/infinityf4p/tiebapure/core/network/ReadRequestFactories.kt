@@ -128,6 +128,23 @@ object TiebaReadRequestFactory {
         )
     }
 
+    fun searchForums(keyword: String, page: Int, builder: TiebaRequestBuilder): Request {
+        val word = keyword.trim()
+        require(word.isNotEmpty()) { "Search keyword must not be empty" }
+        return builder.getRequest(
+            TiebaEndpoint.SearchForum,
+            mapOf(
+                "word" to word,
+                "pn" to TiebaRequestValuePolicy.page(page).toString(),
+            ),
+            mapOf(
+                "User-Agent" to "tieba/${TiebaClientVersion.V12.value} skin/default",
+                "Referer" to "https://tieba.baidu.com/mo/q/hybrid/search?keyword=" +
+                    TiebaFormCodec.escape(word).replace("+", "%20"),
+            ),
+        )
+    }
+
     fun relationships(
         account: Account?,
         userId: Long,

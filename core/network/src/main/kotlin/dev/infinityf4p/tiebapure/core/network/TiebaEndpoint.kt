@@ -42,6 +42,7 @@ data class TiebaEndpoint(
             "format" to "protobuf",
         )
         val SearchThread = endpoint(WEB, "/mo/q/search/thread", EndpointAccess.AnonymousRead)
+        val SearchForum = endpoint(WEB, "/mo/q/search/forum", EndpointAccess.AnonymousRead)
         val SearchUser = endpoint(WEB, "/mo/q/search/user", EndpointAccess.AnonymousRead)
         val UserProfile = endpoint(
             PROTOBUF,
@@ -106,6 +107,7 @@ data class TiebaEndpoint(
             ThreadPage,
             Subposts,
             SearchThread,
+            SearchForum,
             SearchUser,
             UserProfile,
             UserThreads,

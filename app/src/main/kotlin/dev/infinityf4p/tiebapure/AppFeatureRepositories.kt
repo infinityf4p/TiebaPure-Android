@@ -163,14 +163,25 @@ class AppFeatureRepositories(
             page: Int,
         ): SearchPage {
             val forumName = (scope as? SearchScope.ForumOnly)?.forum?.name
+            val blocked = blockedEntries()
+            if (filter == SearchFilter.Forums) {
+                check(scope == SearchScope.Global) { "Forum search is only available globally" }
+                val forumPage = repositories.search.forums(keyword, page)
+                return SearchPage(
+                    items = forumPage.results
+                        .filter { TiebaContentFilterPolicy.shouldKeep(it.forum, blocked) }
+                        .map { SearchItem.ForumResult(it) },
+                    currentPage = forumPage.currentPage,
+                    hasMore = forumPage.hasMore,
+                )
+            }
             val threadPage = repositories.search.threads(
                 keyword = keyword,
                 page = page,
                 sortType = sort.protocolValue,
-                filterType = filter.protocolValue,
+                filterType = requireNotNull(filter.protocolValue),
                 forumName = forumName,
             )
-            val blocked = blockedEntries()
             val threads = filterThreads(threadPage.results.map { it.thread }, blocked)
             val allowedThreadIds = threads.mapTo(hashSetOf(), ThreadSummary::id)
             val items = buildList {

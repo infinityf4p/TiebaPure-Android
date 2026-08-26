@@ -52,6 +52,17 @@ class RequestFactoryTest {
     }
 
     @Test
+    fun forumSearchUsesOriginalFuzzySearchEndpointAndPagination() {
+        val request = TiebaReadRequestFactory.searchForums("C++", 2, testRequestBuilder())
+
+        assertEquals(TiebaEndpoint.SearchForum.url.encodedPath, request.url.encodedPath)
+        assertEquals("C++", request.url.queryParameter("word"))
+        assertEquals("2", request.url.queryParameter("pn"))
+        assertEquals("tieba/${TiebaClientVersion.V12.value} skin/default", request.header("User-Agent"))
+        assertTrue(request.header("Referer").orEmpty().contains("keyword=C%2B%2B"))
+    }
+
+    @Test
     fun replyMessagesUseSignedLegacyClientProfile() {
         val request = TiebaReadRequestFactory.messages(
             account = testAccount(),

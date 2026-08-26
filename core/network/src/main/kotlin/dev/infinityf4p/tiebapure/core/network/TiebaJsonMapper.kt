@@ -6,6 +6,7 @@ import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ImageContent
 import dev.infinityf4p.tiebapure.core.model.SearchPage
+import dev.infinityf4p.tiebapure.core.model.SearchForumResult
 import dev.infinityf4p.tiebapure.core.model.SearchThreadResult
 import dev.infinityf4p.tiebapure.core.model.SearchUserResult
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
@@ -141,8 +142,8 @@ object TiebaJsonMapper {
         val root = parseObject(payload)
         validate(root.int("no"), root.string("error"))
         val data = root.obj("data") ?: JsonObject(emptyMap())
-        val exact = candidates(data["exactMatch"])
-        val fuzzy = candidates(data["fuzzyMatch"])
+        val exact = candidates(data["exactMatch"], USER_KEYS)
+        val fuzzy = candidates(data["fuzzyMatch"], USER_KEYS)
         val results = buildList {
             exact.forEach { add(SearchUserResult(searchUser(it), true)) }
             fuzzy.forEach { add(SearchUserResult(searchUser(it), false)) }
@@ -150,9 +151,32 @@ object TiebaJsonMapper {
         return SearchPage(results, 1, false)
     }
 
-    private fun candidates(element: JsonElement?): List<JsonObject> = when (element) {
+    fun searchForums(payload: String): SearchPage<SearchForumResult> {
+        val root = parseObject(payload)
+        validate(root.int("no"), root.string("error"))
+        val data = root.obj("data") ?: JsonObject(emptyMap())
+        val exact = candidates(data["exactMatch"], FORUM_KEYS)
+        val fuzzy = candidates(data["fuzzyMatch"], FORUM_KEYS)
+        val results = buildList {
+            exact.mapNotNullTo(this) { searchForum(it, isExactMatch = true) }
+            fuzzy.mapNotNullTo(this) { searchForum(it, isExactMatch = false) }
+        }.distinctBy { result ->
+            result.forum.id.takeIf { it > 0L } ?: result.forum.name.lowercase()
+        }
+        return SearchPage(
+            results = results,
+            currentPage = data.int("pn").takeIf { it > 0 } ?: 1,
+            hasMore = data.int("has_more") != 0,
+        )
+    }
+
+    private fun candidates(element: JsonElement?, identityKeys: Set<String>): List<JsonObject> = when (element) {
         is JsonArray -> element.mapNotNull(::asObject)
-        is JsonObject -> if (element.keys.any { it in USER_KEYS }) listOf(element) else element.values.mapNotNull(::asObject)
+        is JsonObject -> if (element.keys.any { it in identityKeys }) {
+            listOf(element)
+        } else {
+            element.values.mapNotNull(::asObject)
+        }
         else -> emptyList()
     }
 
@@ -170,6 +194,30 @@ object TiebaJsonMapper {
             name = name,
             displayName = firstNonBlank(item.string("show_nickname"), item.string("user_nickname"), name),
             portrait = TiebaRemoteUrl.portrait(item.string("portrait")),
+        )
+    }
+
+    private fun searchForum(item: JsonObject, isExactMatch: Boolean): SearchForumResult? {
+        val id = item.longAny("forum_id", "id")
+        val name = firstNonBlank(item.string("forum_name"), item.string("name")).trim()
+        if (id <= 0L || name.isEmpty()) return null
+        val displayName = firstNonBlank(item.string("forum_name_show"), name)
+            .let { if (it.endsWith("吧")) it else "${it}吧" }
+        val memberCount = item.longAny("concern_num_ori", "member_num").coerceAtLeast(0L)
+        val postCount = item.longAny("post_num_ori", "post_num").coerceAtLeast(0L)
+        return SearchForumResult(
+            forum = Forum(
+                id = id,
+                name = name,
+                displayName = displayName,
+                avatarUrl = TiebaRemoteUrl.normalize(item.string("avatar")),
+                memberCount = memberCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                threadCount = postCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            ),
+            memberCount = memberCount,
+            postCount = postCount,
+            introduction = firstNonBlank(item.string("intro"), item.string("slogan")).trim(),
+            isExactMatch = isExactMatch,
         )
     }
 
@@ -229,4 +277,5 @@ object TiebaJsonMapper {
 
     private fun firstNonBlank(vararg values: String?): String = values.firstOrNull { !it.isNullOrBlank() }.orEmpty()
     private val USER_KEYS = setOf("id", "uid", "user_id", "name", "user_name", "portrait")
+    private val FORUM_KEYS = setOf("id", "forum_id", "name", "forum_name")
 }
