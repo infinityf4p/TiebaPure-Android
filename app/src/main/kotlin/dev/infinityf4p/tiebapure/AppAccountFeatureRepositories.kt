@@ -11,10 +11,13 @@ import dev.infinityf4p.tiebapure.core.model.BaiduWebCredentials
 import dev.infinityf4p.tiebapure.core.model.BrowsingHistoryEntry
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.TiebaContentFilterPolicy
+import dev.infinityf4p.tiebapure.core.model.UserRelationshipKind
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import dev.infinityf4p.tiebapure.core.model.mutationOutcomeUnknownMessageOrNull
 import dev.infinityf4p.tiebapure.feature.account.BaiduLoginCookies
 import dev.infinityf4p.tiebapure.feature.account.BrowsingHistoryRepository
+import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesPage
+import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesRepository
 import dev.infinityf4p.tiebapure.feature.account.LoginRepository
 import dev.infinityf4p.tiebapure.feature.account.MeRepository
 import dev.infinityf4p.tiebapure.feature.account.MessagesRepository
@@ -25,10 +28,15 @@ import dev.infinityf4p.tiebapure.feature.account.UserProfileRepository
 import dev.infinityf4p.tiebapure.feature.account.UserRelationshipRepository
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 class AppAccountFeatureRepositories(
     private val account: StateFlow<Account?>,
@@ -118,6 +126,35 @@ class AppAccountFeatureRepositories(
                 val blocklist = blocklistSnapshot()
                 result.copy(users = result.users.filter { TiebaContentFilterPolicy.shouldKeep(it, blocklist) })
             }
+        }
+    }
+
+    val followingUpdates: FollowingUpdatesRepository = FollowingUpdatesRepository { page ->
+        withRequiredAccount { current ->
+            val userId = current.uid.toLongOrNull()
+                ?: error("当前账号 UID 无效，请重新登录。")
+            val requestedPage = page.coerceAtLeast(1)
+            val relationships = accountRepository.relationships(
+                current,
+                userId,
+                UserRelationshipKind.Following,
+                requestedPage,
+            )
+            val blocklist = blocklistSnapshot()
+            val followedUsers = relationships.users
+                .filter { TiebaContentFilterPolicy.shouldKeep(it, blocklist) }
+                .distinctBy(UserSummary::id)
+            val aggregation = aggregateFollowingUserThreads(followedUsers) { user ->
+                repositories.user.threads(user.id, page = 1, account = current).threads
+                    .filter { TiebaContentFilterPolicy.shouldKeep(it, blocklist) }
+            }
+            FollowingUpdatesPage(
+                threads = aggregation.threads,
+                currentPage = relationships.currentPage,
+                followedUserCount = relationships.totalCount,
+                hasMore = relationships.hasMore,
+                unavailableUserCount = aggregation.unavailableUserCount,
+            )
         }
     }
 
@@ -233,6 +270,50 @@ class AppAccountFeatureRepositories(
 
     private suspend fun blocklistSnapshot() =
         database.blocklistDao().observeAll().first().toBlocklistSnapshot()
+}
+
+internal data class FollowingUpdateAggregation(
+    val threads: List<ThreadSummary>,
+    val unavailableUserCount: Int,
+)
+
+internal suspend fun aggregateFollowingUserThreads(
+    users: List<UserSummary>,
+    parallelism: Int = 4,
+    loadThreads: suspend (UserSummary) -> List<ThreadSummary>,
+): FollowingUpdateAggregation {
+    require(parallelism > 0) { "parallelism must be positive" }
+    val distinctUsers = users.filter { it.id > 0 }.distinctBy(UserSummary::id)
+    if (distinctUsers.isEmpty()) return FollowingUpdateAggregation(emptyList(), 0)
+
+    val semaphore = Semaphore(minOf(parallelism, distinctUsers.size))
+    val loaded = supervisorScope {
+        distinctUsers.map { user ->
+            async {
+                semaphore.withPermit {
+                    try {
+                        loadThreads(user)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        }.awaitAll()
+    }
+    if (loaded.all { it == null }) {
+        error("关注用户帖子加载失败，请稍后重试。")
+    }
+    return FollowingUpdateAggregation(
+        threads = loaded.filterNotNull().flatten()
+            .distinctBy(ThreadSummary::id)
+            .sortedWith(
+                compareByDescending<ThreadSummary> { it.createdAtEpochSeconds ?: Long.MIN_VALUE }
+                    .thenByDescending(ThreadSummary::id),
+            ),
+        unavailableUserCount = loaded.count { it == null },
+    )
 }
 
 private fun BrowsingHistoryEntity.toBrowsingHistoryEntry(): BrowsingHistoryEntry = BrowsingHistoryEntry(

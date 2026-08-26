@@ -6,6 +6,7 @@ import dev.infinityf4p.tiebapure.core.model.BrowsingHistoryEntry
 import dev.infinityf4p.tiebapure.core.model.MessageKind
 import dev.infinityf4p.tiebapure.core.model.MessagePage
 import dev.infinityf4p.tiebapure.core.model.OwnThreadDeletionTarget
+import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserProfile
 import dev.infinityf4p.tiebapure.core.model.UserProfileEditRequest
 import dev.infinityf4p.tiebapure.core.model.UserRelationshipKind
@@ -38,6 +39,18 @@ fun interface UserRelationshipRepository {
         kind: UserRelationshipKind,
         page: Int,
     ): UserRelationshipPage
+}
+
+data class FollowingUpdatesPage(
+    val threads: List<ThreadSummary>,
+    val currentPage: Int,
+    val followedUserCount: Int,
+    val hasMore: Boolean,
+    val unavailableUserCount: Int = 0,
+)
+
+fun interface FollowingUpdatesRepository {
+    suspend fun loadPage(page: Int): FollowingUpdatesPage
 }
 
 fun interface MessagesRepository {
