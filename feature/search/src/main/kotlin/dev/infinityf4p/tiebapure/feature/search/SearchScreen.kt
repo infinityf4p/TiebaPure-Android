@@ -134,7 +134,8 @@ fun SearchScreen(
                 value = uiState.input,
                 onValueChange = onInputChanged,
                 singleLine = true,
-                placeholder = { Text(uiState.scope.prompt) },
+                textStyle = MaterialTheme.typography.bodySmall,
+                placeholder = { Text(uiState.scope.prompt, style = MaterialTheme.typography.bodySmall) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                 trailingIcon = if (uiState.input.isNotEmpty()) {
                     { IconButton(onClearQuery) { Icon(Icons.Outlined.Close, "清空搜索") } }
