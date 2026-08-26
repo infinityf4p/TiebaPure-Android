@@ -1,6 +1,7 @@
 package dev.infinityf4p.tiebapure.core.data
 
 import dev.infinityf4p.tiebapure.core.model.Account
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.SearchPage
@@ -26,6 +27,8 @@ interface ForumRepository {
         category: ForumThreadCategory = ForumThreadCategory.ReplyTime,
         account: Account? = null,
     ): ForumPage
+
+    suspend fun info(forumName: String): ForumInfo
 }
 
 interface ThreadRepository {
@@ -78,6 +81,8 @@ class NetworkForumRepository(private val service: TiebaReadService) : ForumRepos
         category: ForumThreadCategory,
         account: Account?,
     ) = service.forum(account, forumName, page, category)
+
+    override suspend fun info(forumName: String) = service.forumInfo(forumName)
 }
 
 class NetworkThreadRepository(private val service: TiebaReadService) : ThreadRepository {

@@ -707,6 +707,7 @@ private fun AppNavigationHost(
                             container.featureRepositories.forumThreads,
                             container.featureRepositories.forumInteraction,
                             container.featureRepositories.forumHub,
+                            container.featureRepositories.forumInfo,
                         )
                     },
                 )

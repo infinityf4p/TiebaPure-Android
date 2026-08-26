@@ -22,6 +22,7 @@ import dev.infinityf4p.tiebapure.core.model.TiebaBlocklistSnapshot
 import dev.infinityf4p.tiebapure.core.model.TiebaContentFilterPolicy
 import dev.infinityf4p.tiebapure.feature.forum.ForumHubRepository
 import dev.infinityf4p.tiebapure.feature.forum.ForumFollowAvailability
+import dev.infinityf4p.tiebapure.feature.forum.ForumInfoRepository
 import dev.infinityf4p.tiebapure.feature.forum.ForumInteractionPort
 import dev.infinityf4p.tiebapure.feature.forum.ForumThreadsRepository
 import dev.infinityf4p.tiebapure.feature.home.HomeFeedPage
@@ -147,6 +148,10 @@ class AppFeatureRepositories(
         repositories.forum.threads(forum.name, requestedPage, category, account()).let {
             it.copy(threads = filterThreads(it.threads, blockedEntries()), currentPage = requestedPage)
         }
+    }
+
+    val forumInfo: ForumInfoRepository = ForumInfoRepository { forum ->
+        repositories.forum.info(forum.name)
     }
 
     val search: SearchRepository = object : SearchRepository {

@@ -1,5 +1,11 @@
 package dev.infinityf4p.tiebapure.feature.forum
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -65,6 +73,7 @@ import dev.infinityf4p.tiebapure.core.media.AvatarImage
 import dev.infinityf4p.tiebapure.core.media.RemoteImage
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ReaderMediaLoadingPolicy
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
@@ -109,6 +118,8 @@ fun ForumThreadsRoute(
         onRetry = viewModel::retry,
         onToggleForumFollow = viewModel::toggleForumFollow,
         onDismissForumActionError = viewModel::dismissForumActionError,
+        onToggleForumInfo = viewModel::toggleForumInfo,
+        onRetryForumInfo = viewModel::retryForumInfo,
         mediaLoadingPolicy = mediaLoadingPolicy,
         modifier = modifier,
     )
@@ -125,6 +136,8 @@ fun ForumThreadsScreen(
     onLoadMore: () -> Unit,
     onToggleForumFollow: () -> Unit,
     onDismissForumActionError: () -> Unit,
+    onToggleForumInfo: () -> Unit = {},
+    onRetryForumInfo: () -> Unit = {},
     onRetry: () -> Unit = onRefresh,
     mediaLoadingPolicy: ReaderMediaLoadingPolicy = ReaderMediaLoadingPolicy.Automatic,
     modifier: Modifier = Modifier,
@@ -143,7 +156,21 @@ fun ForumThreadsScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(callbacks.onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
-            Text(uiState.forum.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .clickable(role = Role.Button, onClick = onToggleForumInfo)
+                    .testTag("forum-title"),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    uiState.forum.displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             IconButton(
                 onClick = onToggleForumFollow,
                 enabled = uiState.canRequestForumFollow && !uiState.isForumFollowOutcomeUnknown,
@@ -177,6 +204,25 @@ fun ForumThreadsScreen(
                     )
                 }
             }
+        }
+        AnimatedVisibility(
+            visible = uiState.showsForumInfo,
+            enter = expandVertically(
+                animationSpec = tween(FORUM_INFO_ANIMATION_MILLIS),
+                expandFrom = Alignment.Top,
+            ) + fadeIn(animationSpec = tween(FORUM_INFO_ANIMATION_MILLIS)),
+            exit = shrinkVertically(
+                animationSpec = tween(FORUM_INFO_ANIMATION_MILLIS),
+                shrinkTowards = Alignment.Top,
+            ) + fadeOut(animationSpec = tween(FORUM_INFO_ANIMATION_MILLIS)),
+        ) {
+            ForumInfoPanel(
+                info = uiState.forumInfo,
+                isLoading = uiState.isLoadingForumInfo,
+                error = uiState.forumInfoError,
+                onCollapse = onToggleForumInfo,
+                onRetry = onRetryForumInfo,
+            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         PullToRefreshBox(
@@ -264,6 +310,113 @@ fun ForumThreadsScreen(
         }
     }
 }
+
+@Composable
+private fun ForumInfoPanel(
+    info: ForumInfo?,
+    isLoading: Boolean,
+    error: String?,
+    onCollapse: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onCollapse)
+            .testTag("forum-info-panel"),
+    ) {
+        when {
+            isLoading -> Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("正在加载贴吧资料", style = MaterialTheme.typography.bodyMedium)
+            }
+            error != null -> Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onRetry, modifier = Modifier.testTag("forum-info-retry")) {
+                    Text("重试")
+                }
+            }
+            info != null -> ForumInfoContent(info)
+        }
+    }
+}
+
+@Composable
+private fun ForumInfoContent(info: ForumInfo) {
+    val category = listOfNotNull(info.primaryCategory, info.secondaryCategory)
+        .distinct()
+        .joinToString(" · ")
+    val details = buildList {
+        info.threadCount.takeIf { it > 0 }?.let {
+            add("主题数" to compactForumInfoCount(it))
+        }
+        category.takeIf(String::isNotEmpty)?.let {
+            add("分类" to it)
+        }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "${compactForumInfoCount(info.memberCount)}成员 · ${compactForumInfoCount(info.postCount)}帖子",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "贴吧简介",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            info.introduction.ifBlank { "暂无简介" },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (details.isNotEmpty()) {
+            Text(
+                "其他信息",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            details.forEach { (label, value) ->
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(64.dp),
+                    )
+                    Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+internal fun compactForumInfoCount(value: Long): String {
+    val count = value.coerceAtLeast(0)
+    if (count < 10_000) return count.toString()
+    val tenths = count / 1_000
+    val whole = tenths / 10
+    val decimal = tenths % 10
+    return if (decimal == 0L) "$whole 万" else "$whole.$decimal 万"
+}
+
+private const val FORUM_INFO_ANIMATION_MILLIS = 200
 
 @Composable
 private fun EmptyPageContinuation(

@@ -9,6 +9,16 @@ data class Forum(
     val threadCount: Int = 0,
 )
 
+data class ForumInfo(
+    val forumId: Long,
+    val memberCount: Long,
+    val postCount: Long,
+    val threadCount: Long,
+    val introduction: String,
+    val primaryCategory: String? = null,
+    val secondaryCategory: String? = null,
+)
+
 enum class ForumThreadCategory(
     val sortType: Int,
     val goodClassifyId: Int?,
