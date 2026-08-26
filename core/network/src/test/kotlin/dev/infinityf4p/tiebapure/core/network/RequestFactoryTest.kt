@@ -32,6 +32,18 @@ class RequestFactoryTest {
     }
 
     @Test
+    fun forumInfoUsesMinimalSignedForumPageRequest() {
+        val request = TiebaReadRequestFactory.forumInfo("测试", testRequestBuilder())
+        val fields = request.formFields()
+
+        assertEquals(TiebaEndpoint.ForumPageForm.url, request.url)
+        assertEquals("测试", fields["kw"])
+        assertEquals("1", fields["pn"])
+        assertEquals("1", fields["rn"])
+        assertEquals(TiebaFormSigner.sign(fields - "sign"), fields["sign"])
+    }
+
+    @Test
     fun searchEncodesLiteralPlusInQuery() {
         val request = TiebaReadRequestFactory.searchThreads("C++", 1, testRequestBuilder())
 

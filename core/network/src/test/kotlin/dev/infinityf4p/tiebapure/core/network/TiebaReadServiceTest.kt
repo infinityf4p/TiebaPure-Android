@@ -72,6 +72,37 @@ class TiebaReadServiceTest {
     }
 
     @Test
+    fun forumInfoRequestDecodesPublicForumMetadata() = withServer { server, client ->
+        server.enqueue(MockResponse.Builder().body(
+            """{
+              "error_code":"0",
+              "forum":{
+                "id":"7160",
+                "member_num":"308524",
+                "post_num":"4664391",
+                "thread_num":"155882",
+                "slogan":"同济学子和谐有爱的网络大家庭~",
+                "first_class":"教育",
+                "second_class":"华东地区高等院校"
+              }
+            }""".trimIndent(),
+        ).build())
+
+        val service = DefaultTiebaReadService(TiebaTransport(client), testRequestBuilder())
+        val info = runBlocking { service.forumInfo("同济大学吧") }
+        val request = server.takeRequest()
+
+        assertEquals("/c/f/frs/page", request.url.encodedPath)
+        assertEquals(7160, info.forumId)
+        assertEquals(308_524, info.memberCount)
+        assertEquals(4_664_391, info.postCount)
+        assertEquals(155_882, info.threadCount)
+        assertEquals("同济学子和谐有爱的网络大家庭~", info.introduction)
+        assertEquals("教育", info.primaryCategory)
+        assertEquals("华东地区高等院校", info.secondaryCategory)
+    }
+
+    @Test
     fun authenticatedForumRequestDeclaresAndDecodesProtobuf() = withServer { server, client ->
         val response = FrsPage.FrsPageResponse.newBuilder()
             .setError(Error.getDefaultInstance())

@@ -2,6 +2,7 @@ package dev.infinityf4p.tiebapure.core.data
 
 import dev.infinityf4p.tiebapure.core.model.Account
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.Post
@@ -34,6 +35,17 @@ class TiebaRepositoriesTest {
     }
 
     @Test
+    fun forumRepositoryLoadsPublicForumInfo() = runBlocking {
+        val service = FakeReadService()
+        val repository = NetworkForumRepository(service)
+
+        val result = repository.info("测试")
+
+        assertEquals("测试", service.forumInfoName)
+        assertEquals(forumInfo, result)
+    }
+
+    @Test
     fun threadRepositoryPreservesTargetAndSort() = runBlocking {
         val service = FakeReadService()
         val repository = NetworkThreadRepository(service)
@@ -52,12 +64,17 @@ class TiebaRepositoriesTest {
 
     private class FakeReadService : TiebaReadService {
         var forumCall: ForumCall? = null
+        var forumInfoName: String? = null
         var threadCall: ThreadCall? = null
 
         override suspend fun home(account: Account?, page: Int, loadType: Int) = emptyList<ThreadSummary>()
         override suspend fun forum(account: Account?, forumName: String, page: Int, category: ForumThreadCategory): ForumPage {
             forumCall = ForumCall(account, forumName, page, category)
             return ForumPage(forum, emptyList(), page, false)
+        }
+        override suspend fun forumInfo(forumName: String): ForumInfo {
+            forumInfoName = forumName
+            return forumInfo
         }
         override suspend fun thread(
             account: Account?, threadId: Long, page: Int, forumId: Long?, postId: ULong?,
@@ -90,6 +107,7 @@ class TiebaRepositoriesTest {
     private companion object {
         val user = UserSummary(1, "user", "User", "")
         val forum = Forum(1, "测试", "测试吧")
+        val forumInfo = ForumInfo(1, 2, 3, 4, "简介", "分类", "子分类")
         val thread = ThreadSummary(1, 1, "title", user, "测试", replyCount = 0, viewCount = 0, blocks = emptyList())
         val post = Post(1u, 1, 1, user, null, null, emptyList(), 0, 0, previewSubposts = emptyList())
     }

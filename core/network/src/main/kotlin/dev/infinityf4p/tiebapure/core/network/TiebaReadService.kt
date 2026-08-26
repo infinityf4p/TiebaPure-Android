@@ -1,6 +1,7 @@
 package dev.infinityf4p.tiebapure.core.network
 
 import dev.infinityf4p.tiebapure.core.model.Account
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
 import dev.infinityf4p.tiebapure.core.model.SearchPage
@@ -22,6 +23,7 @@ import tiebapure.profile.UserProfile as ProfileProtocol
 interface TiebaReadService {
     suspend fun home(account: Account?, page: Int, loadType: Int): List<ThreadSummary>
     suspend fun forum(account: Account?, forumName: String, page: Int, category: ForumThreadCategory): ForumPage
+    suspend fun forumInfo(forumName: String): ForumInfo
     suspend fun thread(
         account: Account?, threadId: Long, page: Int, forumId: Long? = null, postId: ULong? = null,
         onlyThreadAuthor: Boolean = false, sort: ThreadReplySort = ThreadReplySort.Ascending,
@@ -70,6 +72,13 @@ class DefaultTiebaReadService(
             headers = mapOf("X-BD-DATA-TYPE" to "protobuf"),
         )
         return TiebaProtoMapper.forum(transport.protobuf(request, FrsPage.FrsPageResponse.parser()), name, page)
+    }
+
+    override suspend fun forumInfo(forumName: String): ForumInfo {
+        val name = forumName.trim().removeSuffix("吧").trim()
+        if (name.isEmpty()) throw TiebaMutationException.InvalidForumName
+        val request = TiebaReadRequestFactory.forumInfo(name, requestBuilder)
+        return TiebaJsonMapper.forumInfo(transport.text(request))
     }
 
     override suspend fun thread(

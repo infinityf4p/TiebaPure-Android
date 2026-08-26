@@ -97,6 +97,8 @@ fun TiebaRepositories.monitorSessions(report: suspend (Account) -> Unit): TiebaR
                 category: dev.infinityf4p.tiebapure.core.model.ForumThreadCategory,
                 account: Account?,
             ) = monitorSession(account, report) { base.forum.threads(forumName, page, category, account) }
+
+            override suspend fun info(forumName: String) = base.forum.info(forumName)
         },
         thread = object : ThreadRepository {
             override suspend fun page(

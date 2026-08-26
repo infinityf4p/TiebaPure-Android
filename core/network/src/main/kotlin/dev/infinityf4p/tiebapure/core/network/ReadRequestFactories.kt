@@ -35,6 +35,7 @@ object TiebaReadRequestFactory {
         page: Int,
         category: ForumThreadCategory,
         builder: TiebaRequestBuilder,
+        pageSize: Int = 20,
     ): Request {
         val requestedPage = TiebaRequestValuePolicy.page(page)
         val fields = builder.miniCommonFields().toMutableMap().apply {
@@ -48,7 +49,7 @@ object TiebaReadRequestFactory {
             put("q_type", "2")
             put("st_type", "tb_forumlist")
             put("with_group", "0")
-            put("rn", "20")
+            put("rn", pageSize.coerceIn(1, 100).toString())
             put("scr_dip", builder.device.screenDensity.toString())
             put("scr_h", builder.device.screenHeightPixels.toString())
             put("scr_w", builder.device.screenWidthPixels.toString())
@@ -67,6 +68,15 @@ object TiebaReadRequestFactory {
             signingSecret = TiebaFormSigner.DEFAULT_SECRET,
         )
     }
+
+    fun forumInfo(forumName: String, builder: TiebaRequestBuilder): Request =
+        forumThreads(
+            forumName = forumName,
+            page = 1,
+            category = ForumThreadCategory.ReplyTime,
+            builder = builder,
+            pageSize = 1,
+        )
 
     fun searchThreads(
         keyword: String,

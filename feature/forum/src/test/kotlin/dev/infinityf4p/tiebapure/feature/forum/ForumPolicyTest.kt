@@ -1,6 +1,7 @@
 package dev.infinityf4p.tiebapure.feature.forum
 
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumMembership
 import dev.infinityf4p.tiebapure.core.model.MutationOutcomeUnknown
 import dev.infinityf4p.tiebapure.core.model.ForumPage
@@ -71,6 +72,15 @@ class ForumPolicyTest {
     }
 
     @Test
+    fun forumInfoCountsUseCompactChineseUnits() {
+        assertEquals("0", compactForumInfoCount(-1))
+        assertEquals("9999", compactForumInfoCount(9_999))
+        assertEquals("1 万", compactForumInfoCount(10_000))
+        assertEquals("53.6 万", compactForumInfoCount(536_999))
+        assertEquals("128.4 万", compactForumInfoCount(1_284_999))
+    }
+
+    @Test
     fun forumPageReplacesPlaceholderForumWithResolvedForum() {
         val placeholder = Forum(0, "测试", "测试吧")
         val resolved = Forum(42, "测试", "测试吧")
@@ -133,6 +143,68 @@ class ForumPolicyTest {
         assertEquals(42, viewModel.uiState.value.forum.id)
         assertEquals(ForumMembership(42, false), viewModel.uiState.value.forumMembership)
         assertEquals(listOf("resolve:测试", "membership:42"), port.calls)
+    }
+
+    @Test
+    fun forumInfoLoadsOnlyWhenExpandedAndReusesSuccessfulResult() = runTest(dispatcher) {
+        val infoRepository = ControllableForumInfoRepository()
+        val viewModel = ForumThreadsViewModel(
+            forum = Forum(42, "测试", "测试吧"),
+            repository = EmptyForumThreadsRepository(),
+            infoRepository = infoRepository,
+        )
+        advanceUntilIdle()
+
+        assertTrue(infoRepository.calls.isEmpty())
+        assertFalse(viewModel.uiState.value.showsForumInfo)
+
+        viewModel.toggleForumInfo()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.showsForumInfo)
+        assertTrue(viewModel.uiState.value.isLoadingForumInfo)
+        assertEquals(1, infoRepository.calls.size)
+
+        val info = testForumInfo(forumId = 77)
+        infoRepository.calls.single().result.complete(info)
+        advanceUntilIdle()
+        assertEquals(info, viewModel.uiState.value.forumInfo)
+        assertEquals(77, viewModel.uiState.value.forum.id)
+        assertFalse(viewModel.uiState.value.isLoadingForumInfo)
+
+        viewModel.toggleForumInfo()
+        viewModel.toggleForumInfo()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.showsForumInfo)
+        assertEquals(1, infoRepository.calls.size)
+    }
+
+    @Test
+    fun failedForumInfoUsesSafeMessageAndCanRetry() = runTest(dispatcher) {
+        val infoRepository = ControllableForumInfoRepository()
+        val viewModel = ForumThreadsViewModel(
+            forum = Forum(42, "测试", "测试吧"),
+            repository = EmptyForumThreadsRepository(),
+            infoRepository = infoRepository,
+        )
+        advanceUntilIdle()
+
+        viewModel.toggleForumInfo()
+        runCurrent()
+        infoRepository.calls.single().result.completeExceptionally(
+            IllegalStateException("https://example.com/private?token=secret"),
+        )
+        advanceUntilIdle()
+
+        assertEquals("贴吧资料加载失败，请稍后重试。", viewModel.uiState.value.forumInfoError)
+        assertFalse(viewModel.uiState.value.forumInfoError.orEmpty().contains("https://"))
+
+        viewModel.retryForumInfo()
+        runCurrent()
+        assertEquals(2, infoRepository.calls.size)
+        assertTrue(viewModel.uiState.value.isLoadingForumInfo)
+        infoRepository.calls.last().result.complete(testForumInfo())
+        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.forumInfoError)
     }
 
     @Test
@@ -411,6 +483,31 @@ private class ControllableForumThreadsRepository : ForumThreadsRepository {
         }
     }
 }
+
+private class ControllableForumInfoRepository : ForumInfoRepository {
+    data class Call(
+        val forum: Forum,
+        val result: CompletableDeferred<ForumInfo> = CompletableDeferred(),
+    )
+
+    val calls = mutableListOf<Call>()
+
+    override suspend fun loadInfo(forum: Forum): ForumInfo {
+        val call = Call(forum)
+        calls += call
+        return call.result.await()
+    }
+}
+
+private fun testForumInfo(forumId: Long = 42) = ForumInfo(
+    forumId = forumId,
+    memberCount = 536_000,
+    postCount = 1_284_000,
+    threadCount = 160_000,
+    introduction = "用于测试的贴吧简介",
+    primaryCategory = "兴趣",
+    secondaryCategory = "软件",
+)
 
 private fun forumPage(
     forum: Forum,

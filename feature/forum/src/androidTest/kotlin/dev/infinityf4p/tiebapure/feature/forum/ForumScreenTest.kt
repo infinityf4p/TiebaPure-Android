@@ -10,9 +10,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import dev.infinityf4p.tiebapure.core.designsystem.TiebaPureTheme
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ImageContent
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
@@ -33,6 +37,78 @@ class ForumScreenTest {
         }
         composeRule.onNodeWithText("最近浏览").assertIsDisplayed()
         composeRule.onNodeWithText("关注贴吧").assertIsDisplayed()
+    }
+
+    @Test
+    fun forumTitleExpandsInlineInfoAndPanelClickCollapsesIt() {
+        var state by mutableStateOf(
+            ForumThreadsUiState(
+                forum = Forum(1, "测试", "测试吧"),
+                forumInfo = testForumInfo,
+                threads = emptyList(),
+                hasMore = false,
+            ),
+        )
+        composeRule.setContent {
+            TiebaPureTheme {
+                ForumThreadsScreen(
+                    uiState = state,
+                    callbacks = ForumThreadsCallbacks(),
+                    onSelectCategory = {},
+                    onTogglePinned = {},
+                    onRefresh = {},
+                    onLoadMore = {},
+                    onToggleForumFollow = {},
+                    onDismissForumActionError = {},
+                    onToggleForumInfo = {
+                        state = state.copy(showsForumInfo = !state.showsForumInfo)
+                    },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("forum-info-panel").assertDoesNotExist()
+        composeRule.onNodeWithTag("forum-title").performClick()
+        composeRule.onNodeWithTag("forum-info-panel").assertIsDisplayed()
+        composeRule.onNodeWithText("53.6 万成员 · 128.4 万帖子").assertIsDisplayed()
+        composeRule.onNodeWithText("用于测试的贴吧简介").assertIsDisplayed()
+        composeRule.onNodeWithText("兴趣 · 软件").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("forum-info-panel").performClick()
+        composeRule.onNodeWithTag("forum-info-panel").assertDoesNotExist()
+    }
+
+    @Test
+    fun forumInfoRetryDoesNotCollapsePanel() {
+        var collapseCalls = 0
+        var retryCalls = 0
+        composeRule.setContent {
+            TiebaPureTheme {
+                ForumThreadsScreen(
+                    uiState = ForumThreadsUiState(
+                        forum = Forum(1, "测试", "测试吧"),
+                        showsForumInfo = true,
+                        forumInfoError = "贴吧资料加载失败，请稍后重试。",
+                        hasMore = false,
+                    ),
+                    callbacks = ForumThreadsCallbacks(),
+                    onSelectCategory = {},
+                    onTogglePinned = {},
+                    onRefresh = {},
+                    onLoadMore = {},
+                    onToggleForumFollow = {},
+                    onDismissForumActionError = {},
+                    onToggleForumInfo = { collapseCalls += 1 },
+                    onRetryForumInfo = { retryCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("forum-info-retry").performClick()
+        composeRule.runOnIdle {
+            assertEquals(0, collapseCalls)
+            assertEquals(1, retryCalls)
+        }
     }
 
     @Test
@@ -199,4 +275,14 @@ private fun testThread(id: Long, title: String) = ThreadSummary(
     replyCount = 0,
     viewCount = 0,
     blocks = emptyList(),
+)
+
+private val testForumInfo = ForumInfo(
+    forumId = 1,
+    memberCount = 536_000,
+    postCount = 1_284_000,
+    threadCount = 160_000,
+    introduction = "用于测试的贴吧简介",
+    primaryCategory = "兴趣",
+    secondaryCategory = "软件",
 )

@@ -3,6 +3,7 @@ package dev.infinityf4p.tiebapure.feature.forum
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumMembership
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ForumThreadCategory
@@ -128,6 +129,15 @@ fun interface ForumThreadsRepository {
     ): ForumPage
 }
 
+fun interface ForumInfoRepository {
+    suspend fun loadInfo(forum: Forum): ForumInfo
+}
+
+object UnavailableForumInfoRepository : ForumInfoRepository {
+    override suspend fun loadInfo(forum: Forum): ForumInfo =
+        error("当前未提供贴吧资料。")
+}
+
 /**
  * Account-aware operations used by a forum page. Implementations own account/session validation;
  * this feature only serializes local UI requests and ignores stale generations.
@@ -163,6 +173,10 @@ data class ForumThreadsUiState(
     val category: ForumThreadCategory = ForumThreadCategory.ReplyTime,
     val threads: List<ThreadSummary> = emptyList(),
     val showsPinned: Boolean = false,
+    val showsForumInfo: Boolean = false,
+    val forumInfo: ForumInfo? = null,
+    val isLoadingForumInfo: Boolean = false,
+    val forumInfoError: String? = null,
     val isInitialLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -208,6 +222,7 @@ class ForumThreadsViewModel(
     private val repository: ForumThreadsRepository,
     private val interactionPort: ForumInteractionPort = UnavailableForumInteractionPort,
     private val visitRecorder: ForumVisitRecorder? = null,
+    private val infoRepository: ForumInfoRepository = UnavailableForumInfoRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         ForumThreadsUiState(
@@ -247,6 +262,20 @@ class ForumThreadsViewModel(
 
     fun togglePinned() {
         _uiState.update { it.copy(showsPinned = !it.showsPinned) }
+    }
+
+    fun toggleForumInfo() {
+        val snapshot = _uiState.value
+        if (snapshot.showsForumInfo) {
+            _uiState.update { it.copy(showsForumInfo = false) }
+            return
+        }
+        _uiState.update { it.copy(showsForumInfo = true) }
+        loadForumInfoIfNeeded()
+    }
+
+    fun retryForumInfo() {
+        loadForumInfoIfNeeded()
     }
 
     fun refresh(initial: Boolean = false) {
@@ -362,6 +391,39 @@ class ForumThreadsViewModel(
 
     fun dismissForumActionError() {
         _uiState.update { it.copy(forumActionError = null) }
+    }
+
+    private fun loadForumInfoIfNeeded() {
+        val snapshot = _uiState.value
+        if (snapshot.forumInfo != null || snapshot.isLoadingForumInfo) return
+        _uiState.update {
+            it.copy(
+                isLoadingForumInfo = true,
+                forumInfoError = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { infoRepository.loadInfo(snapshot.forum) }
+                .onSuccess { info ->
+                    _uiState.update {
+                        it.copy(
+                            forum = it.forum.withResolvedId(info.forumId),
+                            forumInfo = info,
+                            isLoadingForumInfo = false,
+                            forumInfoError = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _uiState.update {
+                        it.copy(
+                            isLoadingForumInfo = false,
+                            forumInfoError = "贴吧资料加载失败，请稍后重试。",
+                        )
+                    }
+                }
+        }
     }
 
     private suspend fun fetch(

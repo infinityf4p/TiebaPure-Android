@@ -2,6 +2,7 @@ package dev.infinityf4p.tiebapure.core.network
 
 import dev.infinityf4p.tiebapure.core.model.ContentBlock
 import dev.infinityf4p.tiebapure.core.model.Forum
+import dev.infinityf4p.tiebapure.core.model.ForumInfo
 import dev.infinityf4p.tiebapure.core.model.ForumPage
 import dev.infinityf4p.tiebapure.core.model.ImageContent
 import dev.infinityf4p.tiebapure.core.model.SearchPage
@@ -73,6 +74,22 @@ object TiebaJsonMapper {
             threads = threads,
             currentPage = page,
             hasMore = raw.isNotEmpty(),
+        )
+    }
+
+    fun forumInfo(payload: String): ForumInfo {
+        val root = parseObject(payload)
+        validate(root.int("error_code"), root.string("error_msg"))
+        val forum = root.obj("forum")
+            ?: throw TiebaNetworkException.Decode(IllegalStateException("Missing forum information"))
+        return ForumInfo(
+            forumId = forum.long("id").coerceAtLeast(0),
+            memberCount = forum.long("member_num").coerceAtLeast(0),
+            postCount = forum.long("post_num").coerceAtLeast(0),
+            threadCount = forum.long("thread_num").coerceAtLeast(0),
+            introduction = forum.string("slogan").trim(),
+            primaryCategory = forum.string("first_class").trim().takeIf(String::isNotEmpty),
+            secondaryCategory = forum.string("second_class").trim().takeIf(String::isNotEmpty),
         )
     }
 
