@@ -16,6 +16,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -23,6 +24,15 @@ internal data class PreparedSavedThreadMedia(
     val snapshot: SavedThreadSnapshot,
     val transaction: SavedThreadMediaTransaction,
 )
+
+internal suspend fun attemptSavedThreadMedia(action: suspend () -> Unit): Boolean = try {
+    action()
+    true
+} catch (error: CancellationException) {
+    throw error
+} catch (_: Exception) {
+    false
+}
 
 internal class SavedThreadMediaTransaction(
     private val staging: File,
@@ -103,7 +113,9 @@ class AppSavedThreadMediaStore(context: Context) {
         withContext(Dispatchers.IO) {
             val staging = createStaging(snapshot.thread.id)
             val assets = linkedMapOf<String, SavedThreadMediaAsset>()
+            val attempted = mutableSetOf<String>()
             var totalBytes = 0L
+            var mediaComplete = true
 
             fun commitFile(sourceKey: String, kind: SavedThreadMediaKind, source: File, extension: String) {
                 if (assets.containsKey(sourceKey)) return
@@ -113,48 +125,70 @@ class AppSavedThreadMediaStore(context: Context) {
                 totalBytes += size
                 val fileName = "${kind.name.lowercase()}-${sha256(sourceKey)}.$extension"
                 val destination = File(staging, fileName)
-                source.inputStream().use { input ->
-                    FileOutputStream(destination).use { output ->
-                        input.copyTo(output)
-                        output.fd.sync()
+                try {
+                    source.inputStream().use { input ->
+                        FileOutputStream(destination).use { output ->
+                            input.copyTo(output)
+                            output.fd.sync()
+                        }
                     }
+                    restrictToOwner(destination)
+                    assets[sourceKey] = SavedThreadMediaAsset(
+                        sourceKey = sourceKey,
+                        kind = kind,
+                        fileName = fileName,
+                        byteCount = size,
+                        sha256 = sha256(destination),
+                    )
+                } catch (error: Throwable) {
+                    destination.delete()
+                    totalBytes -= size
+                    throw error
                 }
-                restrictToOwner(destination)
-                assets[sourceKey] = SavedThreadMediaAsset(
-                    sourceKey = sourceKey,
-                    kind = kind,
-                    fileName = fileName,
-                    byteCount = size,
-                    sha256 = sha256(destination),
-                )
             }
 
             suspend fun saveImage(rawUrl: String?) {
-                val url = rawUrl?.takeIf(MediaUrlPolicy::isAllowed) ?: return
-                if (assets.containsKey(url)) return
-                commitFile(url, SavedThreadMediaKind.Image, imageLoader.load(url), "img")
+                val value = rawUrl?.trim()?.takeIf(String::isNotEmpty) ?: return
+                if (!attempted.add(value)) return
+                val url = value.takeIf(MediaUrlPolicy::isAllowed)
+                if (url == null) {
+                    mediaComplete = false
+                    return
+                }
+                if (!attemptSavedThreadMedia {
+                    commitFile(url, SavedThreadMediaKind.Image, imageLoader.load(url), "img")
+                }) mediaComplete = false
             }
 
             suspend fun saveVideo(rawUrl: String?) {
-                val url = rawUrl?.takeIf(MediaUrlPolicy::isAllowedDownloadableVideo) ?: return
-                if (assets.containsKey(url)) return
-                val lease = videoDownloader.download(url)
-                try {
-                    commitFile(url, SavedThreadMediaKind.Video, lease.file, "mp4")
-                } finally {
-                    lease.release()
+                val value = rawUrl?.trim()?.takeIf(String::isNotEmpty) ?: return
+                if (!attempted.add(value)) return
+                val url = value.takeIf(MediaUrlPolicy::isAllowedDownloadableVideo)
+                if (url == null) {
+                    mediaComplete = false
+                    return
                 }
+                if (!attemptSavedThreadMedia {
+                    val lease = videoDownloader.download(url)
+                    try {
+                        commitFile(url, SavedThreadMediaKind.Video, lease.file, "mp4")
+                    } finally {
+                        lease.release()
+                    }
+                }) mediaComplete = false
             }
 
             suspend fun saveVoice(md5: String) {
                 val key = voiceKey(md5)
-                if (assets.containsKey(key)) return
-                val lease = voiceDownloader.download(md5)
-                try {
-                    commitFile(key, SavedThreadMediaKind.Voice, lease.file, "audio")
-                } finally {
-                    lease.release()
-                }
+                if (!attempted.add(key)) return
+                if (!attemptSavedThreadMedia {
+                    val lease = voiceDownloader.download(md5)
+                    try {
+                        commitFile(key, SavedThreadMediaKind.Voice, lease.file, "audio")
+                    } finally {
+                        lease.release()
+                    }
+                }) mediaComplete = false
             }
 
             try {
@@ -188,7 +222,11 @@ class AppSavedThreadMediaStore(context: Context) {
                         }
                     }
                 }
-                val updated = snapshot.copy(mediaMode = mode, mediaAssets = assets.values.toList()).validated()
+                val updated = snapshot.copy(
+                    mediaMode = mode,
+                    mediaAssets = assets.values.toList(),
+                    mediaCaptureComplete = mode == SavedThreadMediaMode.TextOnly || mediaComplete,
+                ).validated()
                 PreparedSavedThreadMedia(updated, transaction(staging, threadDirectory(snapshot.thread.id)))
             } catch (error: Throwable) {
                 staging.deleteRecursively()

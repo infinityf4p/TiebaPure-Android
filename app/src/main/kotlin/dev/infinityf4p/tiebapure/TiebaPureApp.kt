@@ -751,6 +751,7 @@ private fun AppNavigationHost(
                 val threadId = entry.arguments?.getString("threadId")?.toLongOrNull() ?: return@composable
                 var isSavingThread by remember(threadId) { mutableStateOf(false) }
                 var showsSaveMode by remember(threadId) { mutableStateOf(false) }
+                var pendingSaveSource by remember(threadId) { mutableStateOf<SavedThreadSaveSource?>(null) }
                 val isThreadSaved = savedThreadEntries.any { it.threadId == threadId }
                 val initialPostId = entry.arguments?.getString("postId")?.toULongOrNull()?.takeIf { it > 0uL }
                 val initialDestination = when (entry.arguments?.getString("initialDestination")) {
@@ -785,8 +786,11 @@ private fun AppNavigationHost(
                     onUserClick = { navController.navigate(userRoute(UserSummary(it, "", "", ""))) },
                     onLinkClick = { openPublicLink(context, it) },
                     onShare = { sharePublicLink(context, it) },
-                    onSave = {
-                        if (!isSavingThread) showsSaveMode = true
+                    onSave = { page, loadedPosts ->
+                        if (!isSavingThread) {
+                            pendingSaveSource = SavedThreadSaveSource(page, loadedPosts)
+                            showsSaveMode = true
+                        }
                     },
                     isSaving = isSavingThread,
                     isSaved = isThreadSaved,
@@ -796,17 +800,22 @@ private fun AppNavigationHost(
                 )
                 if (showsSaveMode) {
                     SavedThreadSaveModeDialog(
-                        onDismiss = { showsSaveMode = false },
-                        onSelect = { mode ->
+                        onDismiss = {
                             showsSaveMode = false
-                            isSavingThread = true
-                            scope.launch {
-                                runCatching { container.savedThreads.save(threadId, mode) }
-                                    .onSuccess {
-                                        message = "已保存主楼、${it.replyCount} 层回复和 ${it.subpostCount} 条楼中楼（${savedThreadMediaModeLabel(it.mediaMode)}）。"
-                                    }
-                                    .onFailure { message = readableMessage(it) }
-                                isSavingThread = false
+                            pendingSaveSource = null
+                        },
+                        onSelect = { mode ->
+                            val source = pendingSaveSource
+                            showsSaveMode = false
+                            pendingSaveSource = null
+                            if (source != null) {
+                                isSavingThread = true
+                                scope.launch {
+                                    runCatching { container.savedThreads.save(source, mode) }
+                                        .onSuccess { message = savedThreadSaveMessage(it) }
+                                        .onFailure { message = readableMessage(it) }
+                                    isSavingThread = false
+                                }
                             }
                         },
                     )

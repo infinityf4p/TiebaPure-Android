@@ -11,6 +11,7 @@ import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ImageContent
 import dev.infinityf4p.tiebapure.core.model.Post
 import dev.infinityf4p.tiebapure.core.model.Subpost
+import dev.infinityf4p.tiebapure.core.model.ThreadPage
 import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.ThreadSummary
 import dev.infinityf4p.tiebapure.core.model.UserSummary
@@ -22,6 +23,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -39,6 +41,24 @@ data class SavedThreadPostSnapshot(
             subpostCount = subposts.size,
             previewSubposts = subposts.take(3),
         )
+}
+
+data class SavedThreadSaveSource(
+    val page: ThreadPage,
+    val loadedPosts: List<Post>,
+)
+
+data class SavedThreadSaveResult(
+    val snapshot: SavedThreadSnapshot,
+    val retainedPrevious: Boolean = false,
+)
+
+internal suspend fun <T> attemptSavedThreadRequest(action: suspend () -> T): T? = try {
+    action()
+} catch (error: CancellationException) {
+    throw error
+} catch (_: Exception) {
+    null
 }
 
 enum class SavedThreadMediaMode { TextOnly, Images, Complete }
@@ -62,6 +82,9 @@ data class SavedThreadSnapshot(
     val mediaAssets: List<SavedThreadMediaAsset> = emptyList(),
     val lastCheckedAtMilliseconds: Long? = null,
     val latestReplyCount: Int = thread.replyCount,
+    val replyCaptureComplete: Boolean = true,
+    val subpostCaptureComplete: Boolean = true,
+    val mediaCaptureComplete: Boolean = true,
 ) {
     val mainPost: SavedThreadPostSnapshot?
         get() = posts.firstOrNull { it.post.floor == 1 }
@@ -71,16 +94,24 @@ data class SavedThreadSnapshot(
         get() = posts.sumOf { it.subposts.size }
     val newReplyCount: Int
         get() = (latestReplyCount - thread.replyCount).coerceAtLeast(0)
+    val isPartial: Boolean
+        get() = !replyCaptureComplete || !subpostCaptureComplete || !mediaCaptureComplete
 
     fun validated(): SavedThreadSnapshot {
         val mainPosts = posts.filter { it.post.floor == 1 }
         val postIDs = posts.map { it.post.id }
         val postFloors = posts.map { it.post.floor }
         val subpostIDs = posts.flatMap { saved -> saved.subposts.map(Subpost::id) }
-        check(thread.id > 0 && forum.id > 0 && savedAtMilliseconds > 0) { "帖子或贴吧标识无效。" }
-        check(mainPosts.size == 1 && mainPosts.single().post.id > 0uL) { "没有拿到完整主楼。" }
+        check(
+            thread.id > 0 && (forum.id > 0 || forum.name.isNotBlank() || forum.displayName.isNotBlank()) &&
+                savedAtMilliseconds > 0,
+        ) { "帖子或贴吧标识无效。" }
+        check(mainPosts.size == 1 && mainPosts.single().post.let { it.id > 0uL || it.blocks.isNotEmpty() }) {
+            "没有拿到完整主楼。"
+        }
         check(posts.all { saved ->
-            saved.post.id > 0uL && saved.post.threadId == thread.id && saved.post.floor > 0 &&
+            (saved.post.id > 0uL || saved.post.floor == 1 && saved.post.blocks.isNotEmpty()) &&
+                saved.post.threadId == thread.id && saved.post.floor > 0 &&
                 saved.subposts.all { it.id > 0uL && it.floor > 0 } &&
                 saved.subposts.map(Subpost::id).distinct().size == saved.subposts.size
         }) { "帖子楼层不完整。" }
@@ -142,30 +173,134 @@ class AppSavedThreadRepository(
     }.flowOn(Dispatchers.Default)
 
     suspend fun save(
-        threadId: Long,
+        source: SavedThreadSaveSource,
         mode: SavedThreadMediaMode = SavedThreadMediaMode.TextOnly,
-    ): SavedThreadSnapshot {
-        val captured = capture(threadId).validated()
-        val prepared = mediaStore.prepare(captured, mode)
-        val snapshot = prepared.snapshot
-        return try {
-            val encoded = SavedThreadBlobCodec.encode(snapshot)
-            serialized {
-                try {
-                    prepared.transaction.commit()
-                    dao.upsert(snapshot.toEntity(encoded))
-                } catch (error: Throwable) {
-                    prepared.transaction.rollback()
-                    throw error
-                }
-                runCatching { prepared.transaction.finish() }
-                runCatching { mediaStore.removeOrphans(dao.threadIds().toSet()) }
-                snapshot
+    ): SavedThreadSaveResult {
+        val threadId = source.page.thread.id
+        require(threadId > 0) { "帖子 ID 无效。" }
+        val savedAt = nowMilliseconds()
+        val baseline = savedThreadBaseline(source, savedAt, mode).validated()
+        val existing = serialized {
+            dao.load(threadId)?.let { entity ->
+                runCatching { SavedThreadBlobCodec.decode(entity.snapshotBlob).validated() }.getOrNull()
             }
+        }
+        val fallback = existing ?: persistInitialBaseline(baseline)
+        val captured = try {
+            capture(source, baseline).validated()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return SavedThreadSaveResult(fallback, retainedPrevious = existing != null)
+        }
+        if (existing != null && captured.isPartial && captured.contentItemCount < existing.contentItemCount) {
+            return SavedThreadSaveResult(existing, retainedPrevious = true)
+        }
+
+        val candidate = preferRicherTextSnapshot(fallback, captured).copy(
+            savedAtMilliseconds = savedAt,
+            mediaMode = SavedThreadMediaMode.TextOnly,
+            mediaAssets = emptyList(),
+            mediaCaptureComplete = mode == SavedThreadMediaMode.TextOnly,
+        ).validated()
+        val candidateEncoded = encodeBestEffort(candidate)
+            ?: return SavedThreadSaveResult(fallback, retainedPrevious = existing != null)
+        val textSnapshot = if (existing == null) {
+            try {
+                persist(candidate, candidateEncoded)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return SavedThreadSaveResult(fallback)
+            }
+        } else candidate
+
+        val prepared = try {
+            mediaStore.prepare(textSnapshot, mode)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return SavedThreadSaveResult(
+                fallbackAfterEnrichmentFailure(existing, textSnapshot, mode),
+                retainedPrevious = existing != null,
+            )
+        }
+        if (!prepared.snapshot.mediaCaptureComplete && existing?.mediaAssets?.isNotEmpty() == true) {
+            prepared.transaction.rollback()
+            val preserved = textSnapshot.copy(
+                mediaMode = existing.mediaMode,
+                mediaAssets = existing.mediaAssets,
+                mediaCaptureComplete = false,
+            ).validated()
+            val preservedEncoded = encodeBestEffort(preserved)
+                ?: return SavedThreadSaveResult(existing, retainedPrevious = true)
+            return try {
+                SavedThreadSaveResult(persist(preserved, preservedEncoded))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                SavedThreadSaveResult(existing, retainedPrevious = true)
+            }
+        }
+        val encoded = encodeBestEffort(prepared.snapshot)
+        if (encoded == null) {
+            prepared.transaction.rollback()
+            return SavedThreadSaveResult(
+                fallbackAfterEnrichmentFailure(existing, textSnapshot, mode),
+                retainedPrevious = existing != null,
+            )
+        }
+        return try {
+            SavedThreadSaveResult(commit(prepared, encoded))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            SavedThreadSaveResult(
+                fallbackAfterEnrichmentFailure(existing, textSnapshot, mode),
+                retainedPrevious = existing != null,
+            )
+        }
+    }
+
+    private suspend fun persistInitialBaseline(baseline: SavedThreadSnapshot): SavedThreadSnapshot {
+        val encoded = encodeBestEffort(baseline)
+        if (encoded != null) return persist(baseline, encoded)
+        val mainOnly = baseline.mainPostOnly().validated()
+        return persist(mainOnly, SavedThreadBlobCodec.encode(mainOnly))
+    }
+
+    private suspend fun persist(snapshot: SavedThreadSnapshot, encoded: ByteArray): SavedThreadSnapshot = serialized {
+        dao.upsert(snapshot.toEntity(encoded))
+        snapshot
+    }
+
+    private fun encodeBestEffort(snapshot: SavedThreadSnapshot): ByteArray? = try {
+        SavedThreadBlobCodec.encodeIfWithinLimit(snapshot)
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend fun commit(prepared: PreparedSavedThreadMedia, encoded: ByteArray): SavedThreadSnapshot = serialized {
+        try {
+            prepared.transaction.commit()
+            dao.upsert(prepared.snapshot.toEntity(encoded))
         } catch (error: Throwable) {
             prepared.transaction.rollback()
             throw error
         }
+        runCatching { prepared.transaction.finish() }
+        runCatching { mediaStore.removeOrphans(dao.threadIds().toSet()) }
+        prepared.snapshot
+    }
+
+    private fun fallbackAfterEnrichmentFailure(
+        existing: SavedThreadSnapshot?,
+        textSnapshot: SavedThreadSnapshot,
+        requestedMode: SavedThreadMediaMode,
+    ): SavedThreadSnapshot {
+        if (existing != null) return existing
+        check(textSnapshot.mediaCaptureComplete == (requestedMode == SavedThreadMediaMode.TextOnly))
+        return textSnapshot
     }
 
     suspend fun load(threadId: Long): SavedThreadSnapshot? {
@@ -257,58 +392,72 @@ class AppSavedThreadRepository(
         )
     }
 
-    private suspend fun capture(threadId: Long): SavedThreadSnapshot {
-        require(threadId > 0) { "帖子 ID 无效。" }
+    private suspend fun capture(
+        source: SavedThreadSaveSource,
+        baseline: SavedThreadSnapshot,
+    ): SavedThreadSnapshot {
+        val threadId = source.page.thread.id
         val activeAccount = account()
-        var first = repositories.thread.page(
-            threadId = threadId,
-            page = 1,
-            sort = ThreadReplySort.Ascending,
-            account = activeAccount,
-        )
-        if (first.mainPostResolved() == null) {
-            first = repositories.thread.page(
+        val first = attemptSavedThreadRequest {
+            repositories.thread.page(
                 threadId = threadId,
                 page = 1,
                 sort = ThreadReplySort.Ascending,
                 account = activeAccount,
             )
-        }
-        val mainPost = checkNotNull(first.mainPostResolved()) { "没有拿到完整主楼，未写入本地保存。" }
-        check(first.thread.id == threadId && first.forum.id > 0) { "帖子响应标识不一致。" }
-        check(first.totalPage in 1..MAXIMUM_PAGES) { "帖子页数超出本机保存上限。" }
+        } ?: return baseline
+        if (first.thread.id != threadId) return baseline
+        val mainPost = first.mainPostResolved() ?: checkNotNull(baseline.mainPost).post
+        val forum = first.forum.takeIf { it.id > 0 || it.name.isNotBlank() || it.displayName.isNotBlank() }
+            ?: baseline.forum
 
         val postsById = linkedMapOf(mainPost.id to mainPost)
-        first.posts.forEach { post ->
-            if (post.id > 0uL && !postsById.containsKey(post.id)) postsById[post.id] = post
+        baseline.posts.asSequence().map(SavedThreadPostSnapshot::post).forEach { post ->
+            if (post.floor > 1 && post.id > 0uL && post.threadId == threadId) postsById.putIfAbsent(post.id, post)
         }
-        for (pageNumber in 2..first.totalPage) {
-            val page = repositories.thread.page(
-                threadId = threadId,
-                page = pageNumber,
-                forumId = first.forum.id,
-                sort = ThreadReplySort.Ascending,
-                account = activeAccount,
-            )
-            check(
-                page.thread.id == threadId && page.currentPage == pageNumber &&
-                    page.totalPage == first.totalPage,
-            ) { "帖子分页在保存期间发生变化，请稍后重试。" }
+        first.posts.forEach { post ->
+            if (post.floor > 1 && post.id > 0uL && post.threadId == threadId) postsById[post.id] = post
+        }
+        var repliesComplete = first.totalPage in 1..MAXIMUM_PAGES && first.currentPage == 1 &&
+            (first.totalPage > 1 || !first.hasMore)
+        val targetPage = first.totalPage.coerceIn(1, MAXIMUM_PAGES)
+        for (pageNumber in 2..targetPage) {
+            val page = attemptSavedThreadRequest {
+                repositories.thread.page(
+                    threadId = threadId,
+                    page = pageNumber,
+                    forumId = forum.id.takeIf { it > 0 },
+                    sort = ThreadReplySort.Ascending,
+                    account = activeAccount,
+                )
+            }
+            if (page == null || page.thread.id != threadId || page.currentPage != pageNumber) {
+                repliesComplete = false
+                continue
+            }
             page.posts.forEach { post ->
-                if (post.id > 0uL && !postsById.containsKey(post.id)) postsById[post.id] = post
+                if (post.floor > 1 && post.id > 0uL && post.threadId == threadId) postsById[post.id] = post
             }
         }
 
         val orderedPosts = postsById.values.sortedWith(compareBy<Post> { it.floor }.thenBy { it.id })
-        check(orderedPosts.firstOrNull()?.id == mainPost.id) { "帖子主楼排序异常。" }
-        val savedPosts = orderedPosts.map { post ->
-            SavedThreadPostSnapshot(post, loadAllSubposts(first.forum.id, post, activeAccount))
+        if (orderedPosts.count { it.floor > 1 } < first.thread.replyCount.coerceAtLeast(0)) {
+            repliesComplete = false
         }
-        return SavedThreadSnapshot(
+        var subpostsComplete = true
+        val savedPosts = orderedPosts.map { post ->
+            val known = baseline.posts.firstOrNull { it.post.id == post.id && it.post.floor == post.floor }
+                ?.subposts.orEmpty()
+            val captured = loadAllSubposts(forum.id, post, activeAccount, known)
+            if (!captured.complete) subpostsComplete = false
+            SavedThreadPostSnapshot(post.copy(previewSubposts = emptyList()), captured.values)
+        }
+        return baseline.copy(
             thread = first.thread,
-            forum = first.forum,
+            forum = forum,
             posts = savedPosts,
-            savedAtMilliseconds = nowMilliseconds(),
+            replyCaptureComplete = repliesComplete,
+            subpostCaptureComplete = subpostsComplete,
         )
     }
 
@@ -316,46 +465,183 @@ class AppSavedThreadRepository(
         forumId: Long,
         post: Post,
         activeAccount: Account?,
-    ): List<Subpost> {
-        if (post.subpostCount <= 0 && post.previewSubposts.isEmpty()) return emptyList()
-        val first = repositories.thread.subposts(
-            threadId = post.threadId,
-            postId = post.id,
-            forumId = forumId,
-            page = 1,
-            account = activeAccount,
-        )
-        check(first.totalPage in 1..MAXIMUM_PAGES) { "楼中楼页数超出本机保存上限。" }
+        knownSubposts: List<Subpost>,
+    ): CapturedSubposts {
         val values = linkedMapOf<ULong, Subpost>()
-        first.subposts.forEach { subpost ->
-            if (subpost.id > 0uL && !values.containsKey(subpost.id)) values[subpost.id] = subpost
+        (knownSubposts + post.previewSubposts).forEach { subpost ->
+            if (subpost.id > 0uL && subpost.floor > 0) values.putIfAbsent(subpost.id, subpost)
         }
-        for (pageNumber in 2..first.totalPage) {
-            val page = repositories.thread.subposts(
+        if (post.subpostCount <= values.size) return CapturedSubposts(values.sortedSubposts(), complete = true)
+        if (post.id == 0uL || forumId <= 0) return CapturedSubposts(values.sortedSubposts(), complete = false)
+        val first = attemptSavedThreadRequest {
+            repositories.thread.subposts(
                 threadId = post.threadId,
                 postId = post.id,
                 forumId = forumId,
-                page = pageNumber,
+                page = 1,
                 account = activeAccount,
             )
-            check(page.currentPage == pageNumber && page.totalPage == first.totalPage) {
-                "楼中楼分页在保存期间发生变化，请稍后重试。"
+        } ?: return CapturedSubposts(values.sortedSubposts(), complete = false)
+        var complete = first.totalPage in 1..MAXIMUM_PAGES && first.currentPage == 1 &&
+            (first.totalPage > 1 || !first.hasMore)
+        first.subposts.forEach { subpost ->
+            if (subpost.id > 0uL && subpost.floor > 0) values[subpost.id] = subpost
+        }
+        val targetPage = first.totalPage.coerceIn(1, MAXIMUM_PAGES)
+        for (pageNumber in 2..targetPage) {
+            val page = attemptSavedThreadRequest {
+                repositories.thread.subposts(
+                    threadId = post.threadId,
+                    postId = post.id,
+                    forumId = forumId,
+                    page = pageNumber,
+                    account = activeAccount,
+                )
+            }
+            if (page == null || page.currentPage != pageNumber) {
+                complete = false
+                continue
             }
             page.subposts.forEach { subpost ->
-                if (subpost.id > 0uL && !values.containsKey(subpost.id)) values[subpost.id] = subpost
+                if (subpost.id > 0uL && subpost.floor > 0) values[subpost.id] = subpost
             }
         }
-        check(values.size >= maxOf(post.subpostCount, post.previewSubposts.size)) {
-            "楼中楼响应不完整，未写入本地保存。"
+        if (values.size < maxOf(post.subpostCount, post.previewSubposts.size)) {
+            complete = false
         }
-        return values.values.sortedWith(compareBy<Subpost> { it.floor }.thenBy { it.id })
+        return CapturedSubposts(values.sortedSubposts(), complete)
     }
 
     private companion object {
         const val MAXIMUM_PAGES = 10_000
         const val CURRENT_METADATA_VERSION = 1
     }
+
+    private data class CapturedSubposts(val values: List<Subpost>, val complete: Boolean)
 }
+
+internal fun savedThreadBaseline(
+    source: SavedThreadSaveSource,
+    savedAtMilliseconds: Long,
+    requestedMode: SavedThreadMediaMode,
+): SavedThreadSnapshot {
+    val page = source.page
+    val threadId = page.thread.id
+    require(threadId > 0 && savedAtMilliseconds > 0) { "帖子 ID 或保存时间无效。" }
+    val sourceMain = page.mainPostResolved()
+        ?: source.loadedPosts.firstOrNull { it.floor == 1 }
+        ?: page.thread.blocks.takeIf { it.isNotEmpty() }?.let { blocks ->
+            Post(
+                id = page.thread.firstPostId ?: 0uL,
+                threadId = threadId,
+                floor = 1,
+                author = page.thread.author,
+                ipAddress = page.thread.author.ipAddress,
+                createdAtEpochSeconds = page.thread.createdAtEpochSeconds,
+                blocks = blocks,
+                subpostCount = 0,
+                likeCount = page.thread.likeCount,
+                isLiked = page.thread.isLiked,
+                previewSubposts = emptyList(),
+            )
+        }
+        ?: error("当前页面没有可保存的主楼文本。")
+    val main = sourceMain.copy(
+        threadId = threadId,
+        floor = 1,
+        blocks = sourceMain.blocks.ifEmpty { page.thread.blocks },
+        previewSubposts = emptyList(),
+    )
+    check(main.id > 0uL || main.blocks.isNotEmpty()) { "当前页面没有可保存的主楼文本。" }
+
+    val seenIDs = mutableSetOf(main.id)
+    val seenFloors = mutableSetOf(1)
+    val seenSubpostIDs = mutableSetOf<ULong>()
+    fun uniqueSubposts(values: List<Subpost>): List<Subpost> =
+        values.validSubposts().filter { seenSubpostIDs.add(it.id) }
+    val savedPosts = mutableListOf(
+        SavedThreadPostSnapshot(
+            post = main,
+            subposts = uniqueSubposts(sourceMain.previewSubposts),
+        ),
+    )
+    (source.loadedPosts + page.posts)
+        .asSequence()
+        .filter { it.threadId == threadId && it.id > 0uL && it.floor > 1 }
+        .sortedWith(compareBy<Post> { it.floor }.thenBy { it.id })
+        .forEach { post ->
+            if (seenIDs.add(post.id) && seenFloors.add(post.floor)) {
+                savedPosts += SavedThreadPostSnapshot(
+                    post = post.copy(previewSubposts = emptyList()),
+                    subposts = uniqueSubposts(post.previewSubposts),
+                )
+            }
+        }
+    val forum = page.forum.takeIf { it.id > 0 || it.name.isNotBlank() || it.displayName.isNotBlank() }
+        ?: page.thread.forumRoute()
+        ?: Forum(
+            id = page.thread.forumId ?: 0,
+            name = page.thread.forumName.orEmpty(),
+            displayName = page.thread.forumName?.let { if (it.endsWith("吧")) it else "${it}吧" } ?: "未知贴吧",
+            avatarUrl = page.thread.forumAvatarUrl,
+        )
+    val savedReplyCount = savedPosts.count { it.post.floor > 1 }
+    return SavedThreadSnapshot(
+        thread = page.thread,
+        forum = forum,
+        posts = savedPosts,
+        savedAtMilliseconds = savedAtMilliseconds,
+        replyCaptureComplete = !page.hasMore && savedReplyCount >= page.thread.replyCount.coerceAtLeast(0),
+        subpostCaptureComplete = savedPosts.all { it.subposts.size >= it.post.subpostCount.coerceAtLeast(0) },
+        mediaCaptureComplete = requestedMode == SavedThreadMediaMode.TextOnly,
+    )
+}
+
+private fun List<Subpost>.validSubposts(): List<Subpost> = asSequence()
+    .filter { it.id > 0uL && it.floor > 0 }
+    .distinctBy(Subpost::id)
+    .sortedWith(compareBy<Subpost> { it.floor }.thenBy { it.id })
+    .toList()
+
+private fun LinkedHashMap<ULong, Subpost>.sortedSubposts(): List<Subpost> =
+    values.sortedWith(compareBy<Subpost> { it.floor }.thenBy { it.id })
+
+private val SavedThreadSnapshot.contentItemCount: Long
+    get() = posts.size.toLong() + posts.sumOf { it.subposts.size.toLong() }
+
+private fun preferRicherTextSnapshot(
+    current: SavedThreadSnapshot,
+    captured: SavedThreadSnapshot,
+): SavedThreadSnapshot = if (captured.contentItemCount >= current.contentItemCount) captured else current
+
+private fun SavedThreadSnapshot.mainPostOnly(): SavedThreadSnapshot {
+    val main = checkNotNull(mainPost)
+    return copy(
+        posts = listOf(
+            main.copy(
+                post = main.post.copy(previewSubposts = emptyList()),
+                subposts = emptyList(),
+            ),
+        ),
+        replyCaptureComplete = thread.replyCount <= 0,
+        subpostCaptureComplete = main.post.subpostCount <= 0,
+    )
+}
+
+internal fun savedThreadSaveMessage(result: SavedThreadSaveResult): String {
+    if (result.retainedPrevious) return "更新未完成，已保留原有本地保存。"
+    val snapshot = result.snapshot
+    val base = "已保存主楼文本、${snapshot.replyCount} 层回复和 ${snapshot.subpostCount} 条楼中楼" +
+        "（${savedThreadMediaModeLabel(snapshot.mediaMode)}）"
+    val incomplete = savedThreadIncompleteContent(snapshot)
+    return if (incomplete == null) "$base。" else "$base；$incomplete。"
+}
+
+internal fun savedThreadIncompleteContent(snapshot: SavedThreadSnapshot): String? = buildList {
+    if (!snapshot.replyCaptureComplete) add("部分回复未保存")
+    if (!snapshot.subpostCaptureComplete) add("部分楼中楼未保存")
+    if (!snapshot.mediaCaptureComplete) add("部分媒体未下载")
+}.takeIf { it.isNotEmpty() }?.joinToString("、")
 
 data class SavedThreadUpdateCheckResult(
     val checkedThreads: Int,
@@ -396,9 +682,11 @@ private fun SavedThreadMetadata.toListItem(): SavedThreadListItem {
     )
 }
 
+private class SavedThreadSnapshotTooLargeException : IllegalStateException("帖子内容超过本机保存大小上限。")
+
 internal object SavedThreadBlobCodec {
     private const val MAGIC = 0x54505354
-    private const val VERSION = 2
+    private const val VERSION = 3
     private const val CHECKSUM_BYTES = 32
     private const val MAXIMUM_BYTES = 16 * 1_024 * 1_024
     private const val MAXIMUM_COLLECTION_COUNT = 1_000_000
@@ -426,11 +714,20 @@ internal object SavedThreadBlobCodec {
                 }
                 output.writeNullableLong(snapshot.lastCheckedAtMilliseconds)
                 output.writeInt(snapshot.latestReplyCount)
+                output.writeBoolean(snapshot.replyCaptureComplete)
+                output.writeBoolean(snapshot.subpostCaptureComplete)
+                output.writeBoolean(snapshot.mediaCaptureComplete)
             }
             bytes.toByteArray()
         }
-        check(payload.size + CHECKSUM_BYTES <= MAXIMUM_BYTES) { "帖子内容超过本机保存大小上限。" }
+        if (payload.size + CHECKSUM_BYTES > MAXIMUM_BYTES) throw SavedThreadSnapshotTooLargeException()
         return payload + MessageDigest.getInstance("SHA-256").digest(payload)
+    }
+
+    fun encodeIfWithinLimit(snapshot: SavedThreadSnapshot): ByteArray? = try {
+        encode(snapshot)
+    } catch (_: SavedThreadSnapshotTooLargeException) {
+        null
     }
 
     fun decode(encoded: ByteArray): SavedThreadSnapshot {
@@ -470,6 +767,9 @@ internal object SavedThreadBlobCodec {
                     },
                     lastCheckedAtMilliseconds = input.readNullableLong(),
                     latestReplyCount = input.readInt(),
+                    replyCaptureComplete = if (version >= 3) input.readBoolean() else true,
+                    subpostCaptureComplete = if (version >= 3) input.readBoolean() else true,
+                    mediaCaptureComplete = if (version >= 3) input.readBoolean() else true,
                 )
             }
             check(input.available() == 0) { "本地保存包含无法识别的数据。" }

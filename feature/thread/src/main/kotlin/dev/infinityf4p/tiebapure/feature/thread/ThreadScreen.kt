@@ -80,6 +80,7 @@ import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.Post
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import dev.infinityf4p.tiebapure.core.model.Subpost
+import dev.infinityf4p.tiebapure.core.model.ThreadPage
 import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.VideoContent
 import kotlinx.coroutines.flow.collect
@@ -116,7 +117,7 @@ fun ThreadRoute(
     onUserClick: (Long) -> Unit,
     onLinkClick: (String) -> Unit,
     onShare: (String) -> Unit,
-    onSave: (() -> Unit)? = null,
+    onSave: ((ThreadPage, List<Post>) -> Unit)? = null,
     isSaving: Boolean = false,
     isSaved: Boolean = false,
     onDownloadImage: (ImageContent) -> Unit,
@@ -171,7 +172,9 @@ fun ThreadRoute(
             onUserClick = onUserClick,
             onLinkClick = onLinkClick,
             onShare = { onShare(buildThreadShareUrl(threadId)) },
-            onSave = onSave,
+            onSave = state.page?.let { page ->
+                onSave?.let { save -> { save(page, state.posts) } }
+            },
             isSaving = isSaving,
             isSaved = isSaved,
             onOpenSubposts = viewModel::openSubposts,
@@ -330,7 +333,7 @@ fun ThreadScreen(
                     onSave?.let { save ->
                         IconButton(
                             onClick = save,
-                            enabled = !isSaving,
+                            enabled = state.page != null && !isSaving,
                             modifier = Modifier.testTag("thread-save-action"),
                         ) {
                             if (isSaving) {
