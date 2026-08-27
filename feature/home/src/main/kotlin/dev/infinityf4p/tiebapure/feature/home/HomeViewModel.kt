@@ -78,7 +78,7 @@ class HomeViewModel(
                     errorMessage = null,
                 )
             }
-            val result = runCatching { repository.loadFeed(page = 1) }
+            val result = runCatching { loadRefreshFeed() }
             result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
             if (generation != requestGeneration) return@launch
             if (showsRefreshIndicator) {
@@ -123,6 +123,16 @@ class HomeViewModel(
                 }
             if (generation == requestGeneration) activeRequest = null
         }
+    }
+
+    private suspend fun loadRefreshFeed(): HomeFeedPage {
+        val firstPage = repository.loadFeed(page = 1)
+        if (!firstPage.hasMore) return firstPage
+
+        val secondPage = repository.loadFeed(page = firstPage.currentPage + 1)
+        return secondPage.copy(
+            threads = mergeThreads(firstPage.threads, secondPage.threads),
+        )
     }
 
     fun loadMore() {

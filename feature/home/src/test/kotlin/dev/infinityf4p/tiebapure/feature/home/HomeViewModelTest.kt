@@ -54,11 +54,66 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun refreshLoadsTwoPagesAndContinuesPaginationAfterBoth() = runTest(dispatcher) {
+        val repository = ControllableHomeRepository()
+        val viewModel = HomeViewModel(repository)
+        runCurrent()
+
+        repository.calls.single().result.complete(homePage(threadId = 1, hasMore = true))
+        runCurrent()
+        assertEquals(listOf(1, 2), repository.calls.map(ControllableHomeRepository.Call::page))
+
+        repository.calls.last().result.complete(homePage(threadId = 2, currentPage = 2, hasMore = true))
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L, 2L), viewModel.uiState.value.threads.map(ThreadSummary::id))
+        assertEquals(3, viewModel.uiState.value.nextPage)
+
+        viewModel.loadMore()
+        runCurrent()
+
+        assertEquals(listOf(1, 2, 3), repository.calls.map(ControllableHomeRepository.Call::page))
+        repository.calls.last().result.complete(homePage(threadId = 3, currentPage = 3, hasMore = false))
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun secondRefreshPageFailureKeepsCachedThreadsAndRetriesBothPages() = runTest(dispatcher) {
+        val repository = ControllableHomeRepository()
+        val viewModel = HomeViewModel(repository)
+        runCurrent()
+        repository.calls.single().result.complete(homePage(threadId = 1, hasMore = false))
+        advanceUntilIdle()
+
+        viewModel.refresh()
+        runCurrent()
+        repository.calls.last().result.complete(homePage(threadId = 2, hasMore = true))
+        runCurrent()
+        repository.calls.last().result.completeExceptionally(IllegalStateException("second page failed"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L), viewModel.uiState.value.threads.map(ThreadSummary::id))
+        assertEquals("second page failed", viewModel.uiState.value.errorMessage)
+
+        viewModel.retry()
+        runCurrent()
+        repository.calls.last().result.complete(homePage(threadId = 2, hasMore = true))
+        runCurrent()
+        repository.calls.last().result.complete(homePage(threadId = 3, currentPage = 2, hasMore = false))
+        advanceUntilIdle()
+
+        assertEquals(listOf(2L, 3L, 1L), viewModel.uiState.value.threads.map(ThreadSummary::id))
+        assertEquals(listOf(1, 1, 2, 1, 2), repository.calls.map(ControllableHomeRepository.Call::page))
+    }
+
+    @Test
     fun retryRepeatsFailedPaginationPage() = runTest(dispatcher) {
         val repository = ControllableHomeRepository()
         val viewModel = HomeViewModel(repository)
         runCurrent()
         repository.calls.single().result.complete(homePage(threadId = 1, hasMore = true))
+        runCurrent()
+        repository.calls.last().result.complete(homePage(threadId = 2, currentPage = 2, hasMore = true))
         advanceUntilIdle()
 
         viewModel.loadMore()
@@ -68,8 +123,8 @@ class HomeViewModelTest {
         viewModel.retry()
         runCurrent()
 
-        assertEquals(listOf(1, 2, 2), repository.calls.map(ControllableHomeRepository.Call::page))
-        repository.calls.last().result.complete(homePage(threadId = 2, currentPage = 2, hasMore = false))
+        assertEquals(listOf(1, 2, 3, 3), repository.calls.map(ControllableHomeRepository.Call::page))
+        repository.calls.last().result.complete(homePage(threadId = 3, currentPage = 3, hasMore = false))
         advanceUntilIdle()
     }
 }
