@@ -17,6 +17,7 @@ import dev.infinityf4p.tiebapure.core.model.ContentSubmissionPolicy
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionRequest
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionReceipt
 import dev.infinityf4p.tiebapure.core.model.ContentSubmissionTarget
+import dev.infinityf4p.tiebapure.core.model.Forum
 import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import dev.infinityf4p.tiebapure.core.model.UserSummary
 import dev.infinityf4p.tiebapure.core.network.ContentSubmissionException
@@ -157,8 +158,8 @@ class AppSettingsAccountActions(
 
         var succeeded = 0
         var alreadySigned = 0
-        var failed = 0
-        var outcomeUnknown = 0
+        val failedForumNames = mutableListOf<String>()
+        val outcomeUnknownForumNames = mutableListOf<String>()
         forums.distinctBy { it.id.takeIf { id -> id > 0 }?.toString() ?: it.name }.forEachIndexed { index, forum ->
             if (index > 0) delay(SIGN_REQUEST_SPACING_MILLISECONDS)
             ensureCurrentSession(account, activeAccount)
@@ -174,22 +175,27 @@ class AppSettingsAccountActions(
             } catch (error: TiebaApiException.SessionExpired) {
                 throw error
             } catch (_: ContentSubmissionException.OutcomeUnknown) {
-                outcomeUnknown += 1
+                outcomeUnknownForumNames += forum.signStatusName()
             } catch (_: TiebaWriteException.OutcomeUnknown) {
-                outcomeUnknown += 1
+                outcomeUnknownForumNames += forum.signStatusName()
             } catch (_: Throwable) {
-                failed += 1
+                failedForumNames += forum.signStatusName()
             }
             ensureCurrentSession(account, activeAccount)
         }
         ensureCurrentSession(account, activeAccount)
-        val completed = failed == 0 && outcomeUnknown == 0 && succeeded + alreadySigned > 0
+        val completed = failedForumNames.isEmpty() && outcomeUnknownForumNames.isEmpty() &&
+            succeeded + alreadySigned > 0
         if (completed) automaticSignStore.markCompletedToday(activeAccount.id)
-        return SignRunResult(buildString {
-            append("签到完成：成功 $succeeded 个，已签到 $alreadySigned 个，失败 $failed 个")
-            if (outcomeUnknown > 0) append("，待确认 $outcomeUnknown 个，请先刷新后再决定是否重试")
-            append('。')
-        }, completed)
+        return SignRunResult(
+            message = forumSignRunMessage(
+                succeeded = succeeded,
+                alreadySigned = alreadySigned,
+                failedForumNames = failedForumNames,
+                outcomeUnknownForumNames = outcomeUnknownForumNames,
+            ),
+            completed = completed,
+        )
     }
 
     override suspend fun logOut() {
@@ -205,6 +211,28 @@ class AppSettingsAccountActions(
         const val SIGN_REQUEST_SPACING_MILLISECONDS = 350L
     }
 }
+
+internal fun forumSignRunMessage(
+    succeeded: Int,
+    alreadySigned: Int,
+    failedForumNames: List<String>,
+    outcomeUnknownForumNames: List<String>,
+): String = buildString {
+    append("签到完成：成功 $succeeded 个，已签到 $alreadySigned 个，失败 ${failedForumNames.size} 个")
+    if (outcomeUnknownForumNames.isNotEmpty()) {
+        append("，待确认 ${outcomeUnknownForumNames.size} 个，请先刷新后再决定是否重试")
+    }
+    append('。')
+    if (failedForumNames.isNotEmpty()) {
+        append("\n失败贴吧：${failedForumNames.joinToString("、")}。")
+    }
+    if (outcomeUnknownForumNames.isNotEmpty()) {
+        append("\n待确认贴吧：${outcomeUnknownForumNames.joinToString("、")}。")
+    }
+}
+
+private fun Forum.signStatusName(): String =
+    displayName.trim().ifBlank { name.trim() }.ifBlank { "未命名贴吧" }
 
 class AutomaticSignStore(
     context: android.content.Context,
