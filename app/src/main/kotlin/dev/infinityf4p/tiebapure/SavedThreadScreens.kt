@@ -535,6 +535,10 @@ private fun SavedThreadDetailScreen(
                         append(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(snapshot.savedAtMilliseconds)))
                         append(" · ${savedThreadMediaModeLabel(snapshot.mediaMode)}")
                         if (snapshot.newReplyCount > 0) append(" · 新增 ${snapshot.newReplyCount} 条回复")
+                        if (snapshot.isPartial) {
+                            append(" · 部分保存")
+                            savedThreadIncompleteContent(snapshot)?.let { append("\n$it") }
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
