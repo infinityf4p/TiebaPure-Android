@@ -24,10 +24,8 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -37,14 +35,6 @@ import kotlinx.coroutines.launch
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
     private val credentialVault = AccountCredentialVault(appContext)
-    private val mutableAccount = MutableStateFlow(credentialVault.load())
-
-    val sessionExpiration = SessionExpirationCoordinator(
-        currentAccount = { mutableAccount.value },
-        logOut = ::logOut,
-    )
-
-    val account: StateFlow<Account?> = mutableAccount.asStateFlow()
     val settings = AppSettingsStore(appContext)
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val currentSettings = settings.values.stateIn(
@@ -63,6 +53,19 @@ class AppContainer(context: Context) {
     )
     private val accountService = DefaultTiebaAccountService(transport, requestBuilder)
     private val writeService = DefaultTiebaWriteService(transport, accountService, requestBuilder)
+    private val accountSessions = AppAccountSessionController(
+        initialState = credentialVault.load(),
+        saveState = credentialVault::save,
+        clearState = credentialVault::clear,
+        activateSession = writeService::activateSession,
+        invalidateAndDrain = writeService::invalidateAndDrain,
+    )
+    val account: StateFlow<Account?> = accountSessions.account
+    val accounts: StateFlow<List<Account>> = accountSessions.accounts
+    val sessionExpiration = SessionExpirationCoordinator(
+        currentAccount = { account.value },
+        logOut = ::removeCurrentAccount,
+    )
     val authenticationRepository = NetworkAuthenticationRepository(accountService)
     val accountRepository = NetworkAccountRepository(accountService)
         .monitorSessions(sessionExpiration::report)
@@ -74,14 +77,14 @@ class AppContainer(context: Context) {
     val savedThreads = AppSavedThreadRepository(
         database = database,
         repositories = repositories,
-        account = { mutableAccount.value },
+        account = { account.value },
         mediaStore = savedThreadMedia,
         context = appContext,
     )
     val featureRepositories = AppFeatureRepositories(
         repositories = repositories,
         database = database,
-        account = { mutableAccount.value },
+        account = { account.value },
         accountRepository = accountRepository,
         mutationRepository = mutationRepository,
         settings = { currentSettings.value },
@@ -102,7 +105,7 @@ class AppContainer(context: Context) {
         account = account,
         accountRepository = accountRepository,
         mutationRepository = mutationRepository,
-        onLogout = ::clearStoredAccount,
+        onLogout = ::removeCurrentAccount,
         automaticSignStore = AutomaticSignStore(appContext),
     )
     val composerRepository = AppComposerRepository(
@@ -146,37 +149,37 @@ class AppContainer(context: Context) {
         profilePendingEdit = profile
     }
 
-    suspend fun replaceAccount(value: Account) {
-        val previous = mutableAccount.value
-        if (previous?.sessionIdentity() != value.sessionIdentity()) {
-            previous?.let { mutationRepository.invalidateAndDrain(it) }
-        }
-        mutationRepository.activateSession(value)
-        try {
-            credentialVault.save(value)
-            mutableAccount.value = value
-        } catch (error: Throwable) {
-            mutationRepository.invalidateAndDrain(value)
-            previous?.let { mutationRepository.activateSession(it) }
-            throw error
-        }
+    private suspend fun replaceAccount(expectedCurrent: Account?, value: Account) {
+        if (accountSessions.addOrReplace(value, expectedCurrent)) resetSessionState()
     }
 
     suspend fun logOut() {
-        val current = mutableAccount.value
-        try {
-            current?.let { mutationRepository.invalidateAndDrain(it) }
-        } finally {
-            if (current == null || mutableAccount.value?.sessionIdentity() == current.sessionIdentity()) {
-                clearStoredAccount()
-            }
+        account.value?.let { removeCurrentAccount(it) }
+    }
+
+    suspend fun switchAccount(accountId: String) {
+        if (accountSessions.switchTo(accountId)) resetSessionState()
+    }
+
+    suspend fun removeAccount(accountId: String) {
+        val sessionChanged = accountSessions.remove(accountId)
+        if (sessionChanged) {
+            resetSessionState()
+            clearBaiduWebSession()
         }
     }
 
-    private fun clearStoredAccount() {
-        credentialVault.clear()
-        mutableAccount.value = null
-        clearBaiduWebSession()
+    private suspend fun removeCurrentAccount(expected: Account) {
+        if (accountSessions.removeCurrent(expected)) {
+            resetSessionState()
+            clearBaiduWebSession()
+        }
+    }
+
+    private fun resetSessionState() {
+        profilePendingEdit = null
+        featureRepositories.clearSessionCaches()
+        sessionExpiration.dismissNotice()
     }
 
     private fun deviceProfile(context: Context): TiebaDeviceProfile {

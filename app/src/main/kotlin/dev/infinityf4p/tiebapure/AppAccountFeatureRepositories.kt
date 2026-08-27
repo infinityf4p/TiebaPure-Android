@@ -40,7 +40,7 @@ import kotlinx.coroutines.sync.withPermit
 
 class AppAccountFeatureRepositories(
     private val account: StateFlow<Account?>,
-    private val saveAccount: suspend (Account) -> Unit,
+    private val saveAccount: suspend (Account?, Account) -> Unit,
     private val clearAccount: suspend () -> Unit,
     private val database: TiebaPureDatabase,
     private val repositories: TiebaRepositories,
@@ -48,7 +48,7 @@ class AppAccountFeatureRepositories(
     private val accountRepository: AccountRepository,
     private val mutationRepository: AccountMutationRepository,
 ) {
-    private val favoritePostIds = ConcurrentHashMap<Long, ULong>()
+    private val favoritePostIds = ConcurrentHashMap<Pair<String, Long>, ULong>()
     private val historyEntries: Flow<List<BrowsingHistoryEntry>> = combine(
         database.browsingHistoryDao().observeAll(),
         database.blocklistDao().observeAll(),
@@ -79,7 +79,7 @@ class AppAccountFeatureRepositories(
         }
         authenticationRepository.validateLogin(credentials).also {
             ensureUnchangedSession(initialAccount)
-            saveAccount(it)
+            saveAccount(initialAccount, it)
         }
     }
 
@@ -175,10 +175,10 @@ class AppAccountFeatureRepositories(
                     result.copy(favorites = result.favorites.filter {
                         TiebaContentFilterPolicy.shouldKeep(it, blocklist)
                     })
-                }
-            }.also { result ->
-                result.favorites.forEach { favorite ->
-                    favoritePostIds[favorite.threadId] = favorite.markedPostId ?: 0u
+                }.also { result ->
+                    result.favorites.forEach { favorite ->
+                        favoritePostIds[current.id to favorite.threadId] = favorite.markedPostId ?: 0u
+                    }
                 }
             }
 
@@ -197,11 +197,11 @@ class AppAccountFeatureRepositories(
                         mutationRepository.setThreadFavorite(
                             account = current,
                             threadId = threadId,
-                            postId = favoritePostIds[threadId] ?: 0u,
+                            postId = favoritePostIds[current.id to threadId] ?: 0u,
                             favorited = false,
                         )
                         ensureCurrentSession(current)
-                        favoritePostIds.remove(threadId)
+                        favoritePostIds.remove(current.id to threadId)
                         removed += threadId
                     } catch (error: CancellationException) {
                         throw error

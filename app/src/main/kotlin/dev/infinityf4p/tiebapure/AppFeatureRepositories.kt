@@ -60,9 +60,12 @@ class AppFeatureRepositories(
     private val threadSummariesById = ConcurrentHashMap<Long, ThreadSummary>()
     private val readingPositionMutex = Mutex()
     private val readingPositionGenerations = ConcurrentHashMap<Long, Long>()
+    private val sessionCacheLock = Any()
+    private var sessionCacheGeneration = 0L
 
     val home: HomeRepository = object : HomeRepository {
         override suspend fun loadFeed(page: Int): HomeFeedPage {
+            val cacheGeneration = currentSessionCacheGeneration()
             var requestedPage = page.coerceAtLeast(1)
             repeat(MAXIMUM_FILTERED_PAGE_SCAN) {
                 val raw = repositories.home.threads(
@@ -70,7 +73,7 @@ class AppFeatureRepositories(
                     page = requestedPage,
                     loadType = if (requestedPage == 1) 1 else 2,
                 )
-                raw.forEach(::rememberThreadSummary)
+                raw.forEach { rememberThreadSummary(it, cacheGeneration) }
                 val filtered = filterThreads(raw, blockedEntries())
                 if (filtered.isNotEmpty() || raw.isEmpty()) {
                     return HomeFeedPage(filtered, requestedPage, raw.isNotEmpty())
@@ -135,10 +138,11 @@ class AppFeatureRepositories(
     }
 
     val forumThreads: ForumThreadsRepository = ForumThreadsRepository { forum, page, category ->
+        val cacheGeneration = currentSessionCacheGeneration()
         var requestedPage = page.coerceAtLeast(1)
         repeat(MAXIMUM_FILTERED_PAGE_SCAN) {
             val result = repositories.forum.threads(forum.name, requestedPage, category, account())
-            result.threads.forEach(::rememberThreadSummary)
+            result.threads.forEach { rememberThreadSummary(it, cacheGeneration) }
             val filtered = filterThreads(result.threads, blockedEntries())
             if (filtered.isNotEmpty() || result.threads.isEmpty() || !result.hasMore) {
                 return@ForumThreadsRepository result.copy(threads = filtered, currentPage = requestedPage)
@@ -224,6 +228,7 @@ class AppFeatureRepositories(
             sort: dev.infinityf4p.tiebapure.core.model.ThreadReplySort,
             onlyThreadAuthor: Boolean,
         ): dev.infinityf4p.tiebapure.core.model.ThreadPage {
+            val cacheGeneration = currentSessionCacheGeneration()
             val result = TiebaContentFilterPolicy.filter(
                 repositories.thread.page(
                     threadId = threadId,
@@ -234,9 +239,7 @@ class AppFeatureRepositories(
                 ),
                 blockedEntries(),
             )
-            rememberThreadSummary(result.thread)
-            result.forum.id.takeIf { it > 0 }?.let { forumIdsByThread[threadId] = it }
-            threadPagesById[threadId] = result
+            cacheThreadPage(threadId, result, cacheGeneration)
             if (page == 1) {
                 database.browsingHistoryDao().upsert(
                     BrowsingHistoryEntity(
@@ -272,6 +275,7 @@ class AppFeatureRepositories(
             sort: dev.infinityf4p.tiebapure.core.model.ThreadReplySort,
             onlyThreadAuthor: Boolean,
         ): dev.infinityf4p.tiebapure.core.model.ThreadPage {
+            val cacheGeneration = currentSessionCacheGeneration()
             val result = TiebaContentFilterPolicy.filter(
                 repositories.thread.pageAroundPost(
                     threadId = threadId,
@@ -282,9 +286,7 @@ class AppFeatureRepositories(
                 ),
                 blockedEntries(),
             )
-            rememberThreadSummary(result.thread)
-            result.forum.id.takeIf { it > 0 }?.let { forumIdsByThread[threadId] = it }
-            threadPagesById[threadId] = result
+            cacheThreadPage(threadId, result, cacheGeneration)
             return result
         }
 
@@ -343,13 +345,15 @@ class AppFeatureRepositories(
 
     fun rememberThreadSummary(thread: ThreadSummary) {
         if (thread.id <= 0) return
-        synchronized(threadSummariesById) {
-            val previous = threadSummariesById[thread.id]
-            threadSummariesById[thread.id] = when {
-                previous == null -> thread
-                previous.blocks.isNotEmpty() && thread.blocks.isEmpty() -> previous
-                else -> thread
-            }
+        synchronized(sessionCacheLock) { rememberThreadSummaryLocked(thread) }
+    }
+
+    fun clearSessionCaches() {
+        synchronized(sessionCacheLock) {
+            sessionCacheGeneration += 1
+            forumIdsByThread.clear()
+            threadPagesById.clear()
+            threadSummariesById.clear()
         }
     }
 
@@ -397,6 +401,35 @@ class AppFeatureRepositories(
 
     private suspend fun blockedEntries(): TiebaBlocklistSnapshot =
         database.blocklistDao().observeAll().first().toBlocklistSnapshot()
+
+    private fun currentSessionCacheGeneration(): Long = synchronized(sessionCacheLock) {
+        sessionCacheGeneration
+    }
+
+    private fun rememberThreadSummary(thread: ThreadSummary, expectedGeneration: Long) {
+        if (thread.id <= 0) return
+        synchronized(sessionCacheLock) {
+            if (sessionCacheGeneration == expectedGeneration) rememberThreadSummaryLocked(thread)
+        }
+    }
+
+    private fun rememberThreadSummaryLocked(thread: ThreadSummary) {
+        val previous = threadSummariesById[thread.id]
+        threadSummariesById[thread.id] = when {
+            previous == null -> thread
+            previous.blocks.isNotEmpty() && thread.blocks.isEmpty() -> previous
+            else -> thread
+        }
+    }
+
+    private fun cacheThreadPage(threadId: Long, page: ThreadPage, expectedGeneration: Long) {
+        synchronized(sessionCacheLock) {
+            if (sessionCacheGeneration != expectedGeneration) return
+            rememberThreadSummaryLocked(page.thread)
+            page.forum.id.takeIf { it > 0 }?.let { forumIdsByThread[threadId] = it }
+            threadPagesById[threadId] = page
+        }
+    }
 
     private fun nextReadingPositionGeneration(threadId: Long): Long = synchronized(readingPositionGenerations) {
         val next = (readingPositionGenerations[threadId] ?: 0L) + 1L
