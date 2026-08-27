@@ -11,10 +11,13 @@ import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.mutationOutcomeUnknownMessageOrNull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -67,6 +70,8 @@ class ThreadViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ThreadUiState(sort = initialSort))
     val state: StateFlow<ThreadUiState> = mutableState.asStateFlow()
+    private val collectionChanges = Channel<Boolean>(Channel.BUFFERED)
+    val confirmedCollectionChanges: Flow<Boolean> = collectionChanges.receiveAsFlow()
 
     private var threadJob: Job? = null
     private var subpostJob: Job? = null
@@ -237,6 +242,7 @@ class ThreadViewModel(
                 mutableState.update { state ->
                     state.copy(page = state.page?.copy(isCollected = targetState))
                 }
+                collectionChanges.trySend(targetState)
             } catch (error: CancellationException) {
                 rollbackCollection(targetState)
                 throw error

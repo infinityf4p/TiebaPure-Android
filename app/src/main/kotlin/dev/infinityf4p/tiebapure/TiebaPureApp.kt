@@ -212,6 +212,8 @@ private object Routes {
         "compose/{kind}/{forumId}/{forumName}/{threadId}/{parentPostId}/{parentFloor}/{subpostId}/{replyUserId}/{replyUserName}"
 }
 
+private const val ThreadCollectionResultKey = "thread-collection-result"
+
 @Composable
 internal fun TiebaPureRoot(
     externalNavigationEvent: ExternalNavigationEvent? = null,
@@ -765,6 +767,15 @@ private fun AppNavigationHost(
                         canReply = settings.replyingEnabled,
                         canLike = settings.likingEnabled,
                     ),
+                    onCollectionChanged = { collected ->
+                        navController.previousBackStackEntry
+                            ?.takeIf { it.destination.route == Routes.Favorites }
+                            ?.savedStateHandle
+                            ?.set(
+                                ThreadCollectionResultKey,
+                                threadCollectionResultValue(threadId, collected),
+                            )
+                    },
                     onBack = { navController.popBackStack() },
                     onForumClick = { navController.navigate(forumRoute(it)) },
                     onReply = { reply ->
@@ -899,11 +910,22 @@ private fun AppNavigationHost(
                 )
             }
 
-            composable(Routes.Favorites) {
+            composable(Routes.Favorites) { entry ->
                 val favorites: ThreadFavoritesViewModel = viewModel(
                     key = "favorites-$accountSessionKey",
                     factory = factory { ThreadFavoritesViewModel(account, container.accountFeatures.threadFavorites) },
                 )
+                val collectionResultValue by entry.savedStateHandle
+                    .getStateFlow<LongArray?>(ThreadCollectionResultKey, null)
+                    .collectAsStateWithLifecycle()
+                LaunchedEffect(collectionResultValue) {
+                    collectionResultValue?.toThreadCollectionResult()?.let { result ->
+                        favorites.onCollectionChanged(result.threadId, result.collected)
+                    }
+                    if (collectionResultValue != null) {
+                        entry.savedStateHandle.set<LongArray?>(ThreadCollectionResultKey, null)
+                    }
+                }
                 ThreadFavoritesRoute(
                     viewModel = favorites,
                     onBack = { navController.popBackStack() },
@@ -1195,6 +1217,19 @@ private fun threadRoute(
     postId: ULong? = null,
     initialDestination: ThreadInitialDestination? = null,
 ): String = buildThreadRoute(threadId, postId, initialDestination)
+
+private data class ThreadCollectionResult(
+    val threadId: Long,
+    val collected: Boolean,
+)
+
+private fun threadCollectionResultValue(threadId: Long, collected: Boolean): LongArray =
+    longArrayOf(threadId, if (collected) 1L else 0L)
+
+private fun LongArray.toThreadCollectionResult(): ThreadCollectionResult? {
+    if (size != 2 || this[0] <= 0 || this[1] !in 0L..1L) return null
+    return ThreadCollectionResult(threadId = this[0], collected = this[1] == 1L)
+}
 
 private fun userRoute(user: UserSummary): String =
     buildUserRoute(user, Uri::encode)
