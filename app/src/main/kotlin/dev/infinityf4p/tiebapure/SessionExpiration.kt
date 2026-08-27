@@ -34,7 +34,7 @@ data class SessionExpirationNotice(
 
 class SessionExpirationCoordinator(
     private val currentAccount: () -> Account?,
-    private val logOut: suspend () -> Unit,
+    private val logOut: suspend (Account) -> Unit,
 ) {
     private val mutex = Mutex()
     private val handledSessions = linkedSetOf<AccountSessionIdentity>()
@@ -50,7 +50,7 @@ class SessionExpirationCoordinator(
         }
         if (!shouldHandle) return@withContext
 
-        val message = runCatching { logOut() }
+        val message = runCatching { logOut(account) }
             .fold(
                 onSuccess = { "登录状态已失效，已退出当前账号，请重新登录。" },
                 onFailure = { "登录状态已失效，本机登录信息已清除，请重新登录。" },

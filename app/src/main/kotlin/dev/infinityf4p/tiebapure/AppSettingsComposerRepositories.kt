@@ -134,7 +134,7 @@ class AppSettingsAccountActions(
     private val account: StateFlow<Account?>,
     private val accountRepository: AccountRepository,
     private val mutationRepository: AccountMutationRepository,
-    private val onLogout: suspend () -> Unit,
+    private val onLogout: suspend (Account) -> Unit,
     private val automaticSignStore: AutomaticSignStore,
 ) : SettingsAccountActions {
     private val signMutex = Mutex()
@@ -196,7 +196,7 @@ class AppSettingsAccountActions(
         val activeAccount = requireCurrentAccount(account)
         mutationRepository.invalidateAndDrain(activeAccount)
         ensureCurrentSession(account, activeAccount)
-        onLogout()
+        onLogout(activeAccount)
     }
 
     private data class SignRunResult(val message: String, val completed: Boolean)

@@ -17,16 +17,22 @@ class SessionExpirationTest {
     fun coordinatorLogsOutCurrentSessionOnceAndPublishesNotice() = runTest {
         val account = account("current", "bduss-a")
         var current: Account? = account
+        var loggedOutAccount: Account? = null
         var logoutCount = 0
         val coordinator = SessionExpirationCoordinator(
             currentAccount = { current },
-            logOut = { logoutCount += 1; current = null },
+            logOut = {
+                loggedOutAccount = it
+                logoutCount += 1
+                current = null
+            },
         )
 
         coordinator.report(account)
         coordinator.report(account)
 
         assertEquals(1, logoutCount)
+        assertEquals(account, loggedOutAccount)
         assertNull(current)
         assertNotNull(coordinator.notice.value)
     }
