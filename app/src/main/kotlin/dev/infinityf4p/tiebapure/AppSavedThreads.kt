@@ -413,7 +413,9 @@ class AppSavedThreadRepository(
 
         val postsById = linkedMapOf(mainPost.id to mainPost)
         baseline.posts.asSequence().map(SavedThreadPostSnapshot::post).forEach { post ->
-            if (post.floor > 1 && post.id > 0uL && post.threadId == threadId) postsById.putIfAbsent(post.id, post)
+            if (post.floor > 1 && post.id > 0uL && post.threadId == threadId && post.id !in postsById) {
+                postsById[post.id] = post
+            }
         }
         first.posts.forEach { post ->
             if (post.floor > 1 && post.id > 0uL && post.threadId == threadId) postsById[post.id] = post
@@ -469,7 +471,9 @@ class AppSavedThreadRepository(
     ): CapturedSubposts {
         val values = linkedMapOf<ULong, Subpost>()
         (knownSubposts + post.previewSubposts).forEach { subpost ->
-            if (subpost.id > 0uL && subpost.floor > 0) values.putIfAbsent(subpost.id, subpost)
+            if (subpost.id > 0uL && subpost.floor > 0 && subpost.id !in values) {
+                values[subpost.id] = subpost
+            }
         }
         if (post.subpostCount <= values.size) return CapturedSubposts(values.sortedSubposts(), complete = true)
         if (post.id == 0uL || forumId <= 0) return CapturedSubposts(values.sortedSubposts(), complete = false)
