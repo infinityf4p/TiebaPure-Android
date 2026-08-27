@@ -53,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -81,6 +82,7 @@ import dev.infinityf4p.tiebapure.core.model.ReadingPreferences
 import dev.infinityf4p.tiebapure.core.model.Subpost
 import dev.infinityf4p.tiebapure.core.model.ThreadReplySort
 import dev.infinityf4p.tiebapure.core.model.VideoContent
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 sealed interface ThreadReplyTarget {
@@ -121,6 +123,7 @@ fun ThreadRoute(
     onSaveImage: ImageSaveAction? = null,
     readingPreferences: ReadingPreferences = ReadingPreferences(),
     capabilities: ThreadCapabilities = ThreadCapabilities(),
+    onCollectionChanged: (Boolean) -> Unit = {},
     onForumClick: ((Forum) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -137,6 +140,13 @@ fun ThreadRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current.applicationContext
     val voicePlayback = remember(context) { VoicePlaybackCoordinator.shared(context) }
+    val currentOnCollectionChanged by rememberUpdatedState(onCollectionChanged)
+
+    LaunchedEffect(viewModel) {
+        viewModel.confirmedCollectionChanges.collect { collected ->
+            currentOnCollectionChanged(collected)
+        }
+    }
 
     DisposableEffect(viewModel, voicePlayback) {
         onDispose {

@@ -16,6 +16,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
@@ -579,18 +581,36 @@ class ThreadViewModelTest {
     }
 
     @Test
+    fun successfulUnfavoriteEmitsConfirmedCollectionState() = runTest(dispatcher) {
+        val repository = FixtureThreadRepository().apply { isCollected = true }
+        val viewModel = ThreadViewModel(42, repository)
+        advanceUntilIdle()
+        val result = backgroundScope.async { viewModel.confirmedCollectionChanges.first() }
+        runCurrent()
+
+        viewModel.toggleCollection()
+        advanceUntilIdle()
+
+        assertFalse(result.await())
+        assertFalse(viewModel.state.value.page?.isCollected == true)
+    }
+
+    @Test
     fun failedCollectionRollsBackOptimisticStateAndReportsError() = runTest(dispatcher) {
         val repository = FixtureThreadRepository().apply {
             collectionFailure = IllegalStateException("收藏失败")
         }
         val viewModel = ThreadViewModel(42, repository)
         advanceUntilIdle()
+        val result = backgroundScope.async { viewModel.confirmedCollectionChanges.first() }
+        runCurrent()
 
         viewModel.toggleCollection()
         assertTrue(viewModel.state.value.page?.isCollected == true)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.page?.isCollected == true)
+        assertFalse(result.isCompleted)
         assertEquals("收藏失败", viewModel.state.value.actionErrorMessage)
         assertEquals(1uL, repository.collectionCalls.single().markedPostId)
     }
@@ -602,12 +622,15 @@ class ThreadViewModelTest {
         }
         val viewModel = ThreadViewModel(42, repository)
         advanceUntilIdle()
+        val result = backgroundScope.async { viewModel.confirmedCollectionChanges.first() }
+        runCurrent()
 
         viewModel.toggleCollection()
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.page?.isCollected == true)
         assertTrue(viewModel.state.value.isCollectionOutcomeUnknown)
+        assertFalse(result.isCompleted)
         assertEquals(1, repository.collectionCalls.size)
         viewModel.toggleCollection()
         advanceUntilIdle()
@@ -763,6 +786,7 @@ private class FixtureThreadRepository : ThreadRepository {
     var failRecovery: Boolean = false
     var sourceFallback: ThreadMainPostFallback? = null
     var pageThreadHasSummary: Boolean = true
+    var isCollected: Boolean = false
 
     override fun mainPostFallback(threadId: Long): ThreadMainPostFallback? = sourceFallback
 
@@ -790,6 +814,7 @@ private class FixtureThreadRepository : ThreadRepository {
             currentPage = page,
             totalPage = 2,
             hasMore = page < 2,
+            isCollected = isCollected,
         ).also { if (missingMainResponses > 0) missingMainResponses -= 1 }
     }
 
@@ -846,6 +871,7 @@ private class FixtureThreadRepository : ThreadRepository {
     override suspend fun setCollected(threadId: Long, markedPostId: ULong, collected: Boolean) {
         collectionCalls += CollectionCall(markedPostId, collected)
         collectionFailure?.let { throw it }
+        isCollected = collected
     }
 
     private val author = UserSummary(7, "author", "测试用户", "")

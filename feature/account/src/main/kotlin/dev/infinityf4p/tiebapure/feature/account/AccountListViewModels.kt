@@ -177,12 +177,21 @@ data class ThreadFavoritesUiState(
         get() = isInitialLoading || isRefreshing || isLoadingMore || isRemoving
 }
 
-class ThreadFavoritesViewModel(
+class ThreadFavoritesViewModel internal constructor(
     account: Account?,
     private val repository: ThreadFavoritesRepository,
+    coroutineScope: CoroutineScope?,
 ) : ViewModel() {
+    constructor(account: Account?, repository: ThreadFavoritesRepository) : this(
+        account,
+        repository,
+        coroutineScope = null,
+    )
+
     private val _uiState = MutableStateFlow(ThreadFavoritesUiState(isLoggedIn = account != null))
     val uiState: StateFlow<ThreadFavoritesUiState> = _uiState.asStateFlow()
+    private val modelScope = coroutineScope ?: viewModelScope
+    private val externallyUncollectedThreadIds = mutableSetOf<Long>()
     private var requestGeneration = 0
 
     init {
@@ -210,11 +219,31 @@ class ThreadFavoritesViewModel(
         }
     }
 
+    fun onCollectionChanged(threadId: Long, collected: Boolean) {
+        if (threadId <= 0 || !_uiState.value.isLoggedIn) return
+        if (collected) {
+            externallyUncollectedThreadIds -= threadId
+        } else {
+            externallyUncollectedThreadIds += threadId
+            _uiState.update { state ->
+                val remainingSelection = state.selectedThreadIds - threadId
+                state.copy(
+                    favorites = state.favorites.filterNot { it.threadId == threadId },
+                    threadsWithReadingPosition = state.threadsWithReadingPosition - threadId,
+                    selectedThreadIds = remainingSelection,
+                    isSelecting = remainingSelection.isNotEmpty(),
+                    unknownRemovalThreadIds = state.unknownRemovalThreadIds - threadId,
+                )
+            }
+        }
+        refresh()
+    }
+
     fun refresh(initial: Boolean = false) {
         val state = _uiState.value
         if (!state.isLoggedIn || state.isBusy) return
         val generation = ++requestGeneration
-        viewModelScope.launch {
+        modelScope.launch {
             _uiState.update {
                 it.copy(
                     isInitialLoading = initial && it.favorites.isEmpty(),
@@ -227,7 +256,9 @@ class ThreadFavoritesViewModel(
                     if (generation != requestGeneration) return@onSuccess
                     _uiState.update {
                         it.copy(
-                            favorites = page.favorites.distinctBy(AccountThreadFavorite::threadId),
+                            favorites = page.favorites
+                                .filterNot { favorite -> favorite.threadId in externallyUncollectedThreadIds }
+                                .distinctBy(AccountThreadFavorite::threadId),
                             threadsWithReadingPosition = positions,
                             isInitialLoading = false,
                             isRefreshing = false,
@@ -255,14 +286,19 @@ class ThreadFavoritesViewModel(
         val state = _uiState.value
         if (!state.isLoggedIn || state.isBusy || !state.hasMore) return
         val generation = requestGeneration
-        viewModelScope.launch {
+        modelScope.launch {
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
             runCatching { repository.loadFavorites(state.nextPage) }
                 .onSuccess { page ->
                     if (generation != requestGeneration) return@onSuccess
                     _uiState.update {
                         it.copy(
-                            favorites = mergeFavorites(it.favorites, page.favorites),
+                            favorites = mergeFavorites(
+                                it.favorites,
+                                page.favorites.filterNot { favorite ->
+                                    favorite.threadId in externallyUncollectedThreadIds
+                                },
+                            ),
                             isLoadingMore = false,
                             hasMore = page.hasMore,
                             nextPage = page.currentPage + 1,
@@ -280,7 +316,7 @@ class ThreadFavoritesViewModel(
     fun removeSelected() {
         val ids = _uiState.value.selectedThreadIds
         if (ids.isEmpty() || _uiState.value.isBusy || ids.any { it in _uiState.value.unknownRemovalThreadIds }) return
-        viewModelScope.launch {
+        modelScope.launch {
             _uiState.update { it.copy(isRemoving = true, errorMessage = null) }
             runCatching { repository.removeFavorites(ids) }
                 .onSuccess { result ->
