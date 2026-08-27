@@ -15,11 +15,26 @@ import dev.infinityf4p.tiebapure.core.model.UserSummary
 import dev.infinityf4p.tiebapure.core.model.UserThreadsPage
 import kotlinx.coroutines.flow.Flow
 
+data class SavedAccountSummary(
+    val id: String,
+    val displayName: String,
+    val portrait: String,
+    val isActive: Boolean,
+)
+
+data class MeAccountSession(
+    val activeAccount: Account?,
+    val savedAccounts: List<SavedAccountSummary>,
+    val maximumSavedAccountCount: Int,
+)
+
 /** Account feature boundaries. Implementations live in core:data. */
 interface MeRepository {
-    val account: Flow<Account?>
+    val session: Flow<MeAccountSession>
     val browsingHistory: Flow<List<BrowsingHistoryEntry>>
     suspend fun logout()
+    suspend fun switchAccount(accountId: String)
+    suspend fun removeAccount(accountId: String)
 }
 
 fun interface LoginRepository {
