@@ -59,10 +59,18 @@ private fun MePreview() {
                 loginStatus = AccountLoginStatus.LoggedIn(
                     Account("1024", "reader_1024", "纸间读者", "", "", "", tbs = ""),
                 ),
+                savedAccounts = listOf(
+                    SavedAccountSummary("1024", "纸间读者", "", isActive = true),
+                    SavedAccountSummary("2048", "第二位读者", "", isActive = false),
+                ),
+                maximumSavedAccountCount = 2,
                 visibleHistoryCount = 37,
             ),
             onLogin = {},
             onOpen = {},
+            onSwitchAccount = {},
+            onRemoveAccount = {},
+            onConsumeAccountActionError = {},
         )
     }
 }

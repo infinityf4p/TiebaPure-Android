@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.infinityf4p.tiebapure.core.model.Account
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,53 +22,128 @@ sealed interface AccountLoginStatus {
 
 data class MeUiState(
     val loginStatus: AccountLoginStatus = AccountLoginStatus.Loading,
+    val savedAccounts: List<SavedAccountSummary> = emptyList(),
+    val maximumSavedAccountCount: Int = 0,
     val visibleHistoryCount: Int = 0,
     val isLoggingOut: Boolean = false,
+    val switchingAccountId: String? = null,
+    val removingAccountId: String? = null,
+    val accountActionErrorMessage: String? = null,
 ) {
     val account: Account?
         get() = (loginStatus as? AccountLoginStatus.LoggedIn)?.account
+
+    val isAccountActionInProgress: Boolean
+        get() = isLoggingOut || switchingAccountId != null || removingAccountId != null
+
+    val canAddAccount: Boolean
+        get() = maximumSavedAccountCount > 0 && savedAccounts.size < maximumSavedAccountCount
 }
 
-class MeViewModel(
+class MeViewModel internal constructor(
     private val repository: MeRepository,
+    coroutineScope: CoroutineScope?,
 ) : ViewModel() {
+    constructor(repository: MeRepository) : this(repository, coroutineScope = null)
+
     private val _uiState = MutableStateFlow(MeUiState())
     val uiState: StateFlow<MeUiState> = _uiState.asStateFlow()
+    private val modelScope = coroutineScope ?: viewModelScope
 
     init {
-        viewModelScope.launch {
-            combine(repository.account, repository.browsingHistory) { account, history ->
-                MeUiState(
-                    loginStatus = account?.let(AccountLoginStatus::LoggedIn) ?: AccountLoginStatus.LoggedOut,
-                    visibleHistoryCount = history.size,
-                )
+        modelScope.launch {
+            combine(repository.session, repository.browsingHistory) { session, history ->
+                session to history
             }.catch { error ->
                 if (error is CancellationException) throw error
-                emit(MeUiState(loginStatus = AccountLoginStatus.Failed(error.accountReadableMessage())))
-            }.collect(_uiState)
+                _uiState.update {
+                    it.copy(loginStatus = AccountLoginStatus.Failed(error.accountReadableMessage()))
+                }
+            }.collect { (session, history) ->
+                _uiState.update {
+                    it.copy(
+                        loginStatus = session.activeAccount
+                            ?.let(AccountLoginStatus::LoggedIn)
+                            ?: AccountLoginStatus.LoggedOut,
+                        savedAccounts = session.savedAccounts,
+                        maximumSavedAccountCount = session.maximumSavedAccountCount,
+                        visibleHistoryCount = history.size,
+                    )
+                }
+            }
         }
     }
 
     fun logout() {
-        if (_uiState.value.isLoggingOut) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoggingOut = true) }
+        if (_uiState.value.isAccountActionInProgress) return
+        _uiState.update { it.copy(isLoggingOut = true, accountActionErrorMessage = null) }
+        modelScope.launch {
             runCatching { repository.logout() }
                 .onSuccess {
-                    _uiState.update {
-                        it.copy(loginStatus = AccountLoginStatus.LoggedOut, isLoggingOut = false)
-                    }
+                    _uiState.update { it.copy(isLoggingOut = false) }
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     _uiState.update {
                         it.copy(
                             isLoggingOut = false,
-                            loginStatus = AccountLoginStatus.Failed(error.accountReadableMessage()),
+                            accountActionErrorMessage = error.accountReadableMessage(),
                         )
                     }
                 }
         }
+    }
+
+    fun switchAccount(accountId: String) {
+        val snapshot = _uiState.value
+        if (snapshot.isAccountActionInProgress) return
+        if (snapshot.savedAccounts.none { it.id == accountId && !it.isActive }) return
+        _uiState.update {
+            it.copy(switchingAccountId = accountId, accountActionErrorMessage = null)
+        }
+        modelScope.launch {
+            runCatching { repository.switchAccount(accountId) }
+                .onSuccess {
+                    _uiState.update { it.copy(switchingAccountId = null) }
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _uiState.update {
+                        it.copy(
+                            switchingAccountId = null,
+                            accountActionErrorMessage = error.accountReadableMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun removeAccount(accountId: String) {
+        val snapshot = _uiState.value
+        if (snapshot.isAccountActionInProgress) return
+        if (snapshot.savedAccounts.none { it.id == accountId }) return
+        _uiState.update {
+            it.copy(removingAccountId = accountId, accountActionErrorMessage = null)
+        }
+        modelScope.launch {
+            runCatching { repository.removeAccount(accountId) }
+                .onSuccess {
+                    _uiState.update { it.copy(removingAccountId = null) }
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    _uiState.update {
+                        it.copy(
+                            removingAccountId = null,
+                            accountActionErrorMessage = error.accountReadableMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun consumeAccountActionError() {
+        _uiState.update { it.copy(accountActionErrorMessage = null) }
     }
 }
 

@@ -1,5 +1,6 @@
 package dev.infinityf4p.tiebapure
 
+import dev.infinityf4p.tiebapure.core.data.AccountCredentialState
 import dev.infinityf4p.tiebapure.core.data.AccountMutationRepository
 import dev.infinityf4p.tiebapure.core.data.AccountRepository
 import dev.infinityf4p.tiebapure.core.data.AuthenticationRepository
@@ -19,9 +20,11 @@ import dev.infinityf4p.tiebapure.feature.account.BrowsingHistoryRepository
 import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesPage
 import dev.infinityf4p.tiebapure.feature.account.FollowingUpdatesRepository
 import dev.infinityf4p.tiebapure.feature.account.LoginRepository
+import dev.infinityf4p.tiebapure.feature.account.MeAccountSession
 import dev.infinityf4p.tiebapure.feature.account.MeRepository
 import dev.infinityf4p.tiebapure.feature.account.MessagesRepository
 import dev.infinityf4p.tiebapure.feature.account.ProfileEditRepository
+import dev.infinityf4p.tiebapure.feature.account.SavedAccountSummary
 import dev.infinityf4p.tiebapure.feature.account.ThreadFavoritesRepository
 import dev.infinityf4p.tiebapure.feature.account.ThreadFavoriteRemovalResult
 import dev.infinityf4p.tiebapure.feature.account.UserProfileRepository
@@ -40,8 +43,11 @@ import kotlinx.coroutines.sync.withPermit
 
 class AppAccountFeatureRepositories(
     private val account: StateFlow<Account?>,
+    private val accounts: StateFlow<List<Account>>,
     private val saveAccount: suspend (Account?, Account) -> Unit,
     private val clearAccount: suspend () -> Unit,
+    private val activateSavedAccount: suspend (String) -> Unit,
+    private val removeSavedAccount: suspend (String) -> Unit,
     private val database: TiebaPureDatabase,
     private val repositories: TiebaRepositories,
     private val authenticationRepository: AuthenticationRepository,
@@ -59,11 +65,35 @@ class AppAccountFeatureRepositories(
     }
 
     val me: MeRepository = object : MeRepository {
-        override val account: Flow<Account?> = this@AppAccountFeatureRepositories.account
+        override val session: Flow<MeAccountSession> = combine(
+            this@AppAccountFeatureRepositories.account,
+            accounts,
+        ) { activeAccount, savedAccounts ->
+            MeAccountSession(
+                activeAccount = activeAccount,
+                savedAccounts = savedAccounts.map { savedAccount ->
+                    SavedAccountSummary(
+                        id = savedAccount.id,
+                        displayName = savedAccount.resolvedDisplayName,
+                        portrait = savedAccount.portrait,
+                        isActive = savedAccount.id == activeAccount?.id,
+                    )
+                },
+                maximumSavedAccountCount = AccountCredentialState.MAX_ACCOUNT_COUNT,
+            )
+        }
         override val browsingHistory: Flow<List<BrowsingHistoryEntry>> = historyEntries
 
         override suspend fun logout() {
             clearAccount()
+        }
+
+        override suspend fun switchAccount(accountId: String) {
+            activateSavedAccount(accountId)
+        }
+
+        override suspend fun removeAccount(accountId: String) {
+            removeSavedAccount(accountId)
         }
     }
 

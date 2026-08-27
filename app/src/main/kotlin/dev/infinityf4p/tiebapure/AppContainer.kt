@@ -92,8 +92,11 @@ class AppContainer(context: Context) {
     )
     val accountFeatures = AppAccountFeatureRepositories(
         account = account,
+        accounts = accounts,
         saveAccount = ::replaceAccount,
         clearAccount = ::logOut,
+        activateSavedAccount = ::switchAccount,
+        removeSavedAccount = ::removeAccount,
         database = database,
         repositories = repositories,
         authenticationRepository = authenticationRepository,
